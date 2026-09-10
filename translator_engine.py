@@ -199,32 +199,34 @@ class NllbTranslatorEngine:
         Translates a list of texts using Groq Cloud API (Llama 3.3 70B / 3.1 8B).
         Ultra-low latency (~0.3s), zero RAM overhead, SOTA translation quality.
         """
-        if not self.groq_api_key or not texts_to_translate:
+        api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
+        if not api_key or not texts_to_translate:
+            print("[Groq API] Clé GROQ_API_KEY absente ou liste vide.")
             return None
 
         src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
-        model = self.groq_model or "llama-3.3-70b-versatile"
+        model = os.environ.get("GROQ_MODEL", self.groq_model or "llama-3.3-70b-versatile").strip()
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.groq_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
 
-        chunk_size = 20
+        chunk_size = 15
         all_translated = []
 
         for i in range(0, len(texts_to_translate), chunk_size):
             chunk = texts_to_translate[i:i + chunk_size]
             prompt_instruction = (
-                f"You are a professional, high-fidelity document translation engine. "
+                f"You are a professional document translation engine. "
                 f"Translate each text item in the provided JSON array from {src_name} ({from_code}) to {tgt_name} ({to_code}).\n"
-                f"CRITICAL RULES:\n"
-                f"1. Output MUST be ONLY a valid JSON object with key 'translations': [\"item1\", \"item2\", ...].\n"
-                f"2. The array 'translations' MUST have EXACTLY {len(chunk)} elements matching the input elements in order.\n"
-                f"3. Strictly preserve all numbers, equations, technical codes, layout symbols, and acronyms.\n"
-                f"4. Do NOT include markdown code blocks, backticks, or conversational commentary."
+                f"Rules:\n"
+                f"1. Output a JSON object with key 'translations': [\"item1\", \"item2\", ...]\n"
+                f"2. The array 'translations' must contain EXACTLY {len(chunk)} translated strings corresponding 1:1 to the input items.\n"
+                f"3. Preserve all numbers, acronyms, placeholders, and formatting.\n"
+                f"4. Do NOT output explanations or notes. ONLY valid JSON."
             )
 
             payload = {
@@ -243,14 +245,31 @@ class NllbTranslatorEngine:
                     if resp.status_code == 200:
                         data = resp.json()
                         raw_content = data["choices"][0]["message"]["content"].strip()
+                        # Clean potential markdown backticks
+                        if "```" in raw_content:
+                            raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.MULTILINE)
+                            raw_content = re.sub(r"\s*```$", "", raw_content, flags=re.MULTILINE)
+                        start_brace = raw_content.find("{")
+                        end_brace = raw_content.rfind("}")
+                        if start_brace != -1 and end_brace != -1:
+                            raw_content = raw_content[start_brace:end_brace + 1]
+
                         parsed = json.loads(raw_content)
-                        translations = parsed.get("translations", [])
+                        translations = None
+                        if isinstance(parsed, dict):
+                            translations = parsed.get("translations") or parsed.get("translated_texts") or list(parsed.values())[0]
+                        elif isinstance(parsed, list):
+                            translations = parsed
+
                         if isinstance(translations, list) and len(translations) == len(chunk):
                             all_translated.extend(translations)
                             continue
-                    print(f"[Groq API] HTTP {resp.status_code}: {resp.text[:200]}")
+                        else:
+                            print(f"[Groq API] Translations count mismatch: got {len(translations) if isinstance(translations, list) else 'non-list'}, expected {len(chunk)}")
+                    else:
+                        print(f"[Groq API] HTTP {resp.status_code}: {resp.text[:300]}")
             except Exception as e:
-                print(f"[Groq API] Error: {e}")
+                print(f"[Groq API] Erreur appel API: {e}")
 
             all_translated.extend(chunk)
 
@@ -275,7 +294,8 @@ class NllbTranslatorEngine:
         if cache_key in self._translation_cache:
             return self._translation_cache[cache_key]
 
-        if self.groq_api_key:
+        groq_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
+        if groq_key:
             res = self.translate_batch_texts([cleaned_text], from_code, to_code)
             if res and len(res) > 0:
                 return res[0]
@@ -350,7 +370,8 @@ class NllbTranslatorEngine:
             texts_to_translate_indices.append((idx, cleaned_text))
 
         # 1. Attempt Groq Cloud Translation
-        if self.groq_api_key and texts_to_translate_indices:
+        groq_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
+        if groq_key and texts_to_translate_indices:
             try:
                 raw_chunk = [item[1] for item in texts_to_translate_indices]
                 groq_translated = self._translate_batch_groq(raw_chunk, from_code, to_code)

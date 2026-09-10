@@ -82,6 +82,18 @@ def get_shields_status():
     return CircuitBreakerStatus(**status)
 
 
+@app.get("/api/diagnostic")
+def get_diagnostic():
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    return {
+        "status": "online",
+        "groq_configured": bool(groq_key),
+        "groq_prefix": groq_key[:7] + "..." if groq_key else "NON_CONFIGUREE",
+        "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
+        "stripe_configured": bool(os.environ.get("STRIPE_SECRET_KEY"))
+    }
+
+
 @app.post("/api/quote", response_model=QuoteResponse)
 async def get_quote(
     request: Request,

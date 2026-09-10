@@ -50,6 +50,13 @@ def execute_translation_job(task_id: str, input_path: str, output_path: str,
     requested_device = tier_rule.get('hardware_device', 'cpu')
     engine = get_engine(requested_device)
 
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not groq_key and not engine.is_package_installed():
+        task.status = 'FAILED'
+        task.error = "La clé GROQ_API_KEY n'est pas configurée sur Render. Rendez-vous dans l'onglet 'Environment' de Render et ajoutez GROQ_API_KEY pour activer l'IA de traduction."
+        task.message = task.error
+        return
+
     def progress_callback(cur: int, total: int, msg: str):
         task.current_page = cur
         task.total_pages = total
