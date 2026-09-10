@@ -1,7 +1,10 @@
 import os
 import re
-import fitz  # PyMuPDF
-from PyQt6.QtGui import QImage, QPixmap
+try:
+    from PyQt6.QtGui import QImage, QPixmap
+except ImportError:
+    QImage = None
+    QPixmap = None
 from config import SYSTEM_FONTS
 
 FIGURE_REGEX = re.compile(

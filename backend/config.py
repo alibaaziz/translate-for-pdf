@@ -88,3 +88,7 @@ STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
 STRIPE_PRICE_ID_STARTER = os.environ.get('STRIPE_PRICE_ID_STARTER', '')
 STRIPE_PRICE_ID_PRO = os.environ.get('STRIPE_PRICE_ID_PRO', '')
 
+# Groq Cloud Translation (LPU ultra-haute vitesse Llama-3.3 70B & 3.1 8B)
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
+GROQ_MODEL = os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile')
+
