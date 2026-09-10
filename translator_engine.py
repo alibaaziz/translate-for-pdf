@@ -194,9 +194,39 @@ class NllbTranslatorEngine:
                     compute_type="int8"
                 )
 
+    def _get_best_groq_model(self, api_key: str) -> str:
+        """
+        Queries Groq /models API to automatically select an active Llama model on the account.
+        Prevents 404 model_not_found errors completely.
+        """
+        cached_model = getattr(self, "_cached_groq_model", None)
+        if cached_model:
+            return cached_model
+
+        env_model = os.environ.get("GROQ_MODEL", "").strip()
+        if env_model:
+            self._cached_groq_model = env_model
+            return env_model
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"})
+                if resp.status_code == 200:
+                    available = [m["id"] for m in resp.json().get("data", [])]
+                    for cand in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"]:
+                        if cand in available:
+                            print(f"[Groq Engine] Modele actif selectionne: {cand}")
+                            self._cached_groq_model = cand
+                            return cand
+        except Exception as e:
+            print(f"[Groq Engine] Erreur detection des modeles: {e}")
+
+        self._cached_groq_model = "llama-3.1-8b-instant"
+        return self._cached_groq_model
+
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
-        Translates a list of texts using Groq Cloud API (Llama 3.3 70B / 3.1 8B).
+        Translates a list of texts using Groq Cloud API.
         Ultra-low latency (~0.3s), zero RAM overhead, SOTA translation quality.
         """
         api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
@@ -206,7 +236,7 @@ class NllbTranslatorEngine:
 
         src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
-        model = os.environ.get("GROQ_MODEL", self.groq_model or "llama-3.3-70b-versatile").strip()
+        model = self._get_best_groq_model(api_key)
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {

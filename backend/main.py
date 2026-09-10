@@ -88,21 +88,30 @@ def get_diagnostic():
     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
     groq_error = None
     groq_test_result = None
+    selected_model = None
     if groq_key:
         try:
             with httpx.Client(timeout=10.0) as client:
+                m_resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
+                available_models = [m["id"] for m in m_resp.json().get("data", [])] if m_resp.status_code == 200 else []
+                selected_model = "llama-3.1-8b-instant"
+                for cand in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"]:
+                    if cand in available_models:
+                        selected_model = cand
+                        break
+
                 resp = client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {groq_key}"},
                     json={
-                        "model": "llama-3.3-70b-versatile",
+                        "model": selected_model,
                         "messages": [{"role": "user", "content": "Translate to French: Hello world"}]
                     }
                 )
                 if resp.status_code == 200:
-                    groq_test_result = resp.json()["choices"][0]["message"]["content"]
+                    groq_test_result = resp.json()["choices"][0]["message"]["content"].strip()
                 else:
-                    groq_error = f"HTTP {resp.status_code}: {resp.text}"
+                    groq_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
         except Exception as e:
             groq_error = str(e)
 
@@ -110,6 +119,7 @@ def get_diagnostic():
         "status": "online",
         "groq_configured": bool(groq_key),
         "groq_prefix": groq_key[:7] + "..." if groq_key else "NON_CONFIGUREE",
+        "groq_model_selected": selected_model,
         "groq_test_result": groq_test_result,
         "groq_error": groq_error,
         "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
