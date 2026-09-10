@@ -88,7 +88,7 @@ class NllbTranslatorEngine:
         self.tokenizer = None
         self._translation_cache = {}
         self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
-        self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+        self.groq_model = os.environ.get("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
         self._model_rotation_idx = 0
         self._model_cooldowns = {}
 
@@ -209,6 +209,10 @@ class NllbTranslatorEngine:
             return True
 
         preferred = [
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "meta-llama/llama-4-scout-17b",
+            "llama-4-scout-17b-16e-instruct",
+            "llama-4-scout",
             "qwen/qwen3.8-27b",
             "openai/gpt-oss-120b",
             "openai/gpt-oss-20b",
@@ -225,6 +229,22 @@ class NllbTranslatorEngine:
                 resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"})
                 if resp.status_code == 200:
                     available = [m["id"] for m in resp.json().get("data", [])]
+
+                    # Probe scout model directly if not listed in public endpoint
+                    scout_id = "meta-llama/llama-4-scout-17b-16e-instruct"
+                    if scout_id not in available:
+                        try:
+                            probe = client.post(
+                                "https://api.groq.com/openai/v1/chat/completions",
+                                headers={"Authorization": f"Bearer {api_key}"},
+                                json={"model": scout_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+                                timeout=4.0
+                            )
+                            if probe.status_code in (200, 429):
+                                available.insert(0, scout_id)
+                        except Exception:
+                            pass
+
                     chat_models = [m for m in available if is_valid_chat_model(m)]
 
                     ordered = []
@@ -332,13 +352,19 @@ class NllbTranslatorEngine:
 
     def _pick_next_groq_model(self, chat_models: list) -> tuple[str, float]:
         """
-        Picks the next available model in round-robin fashion, skipping any model
-        currently in cooldown due to a 429 rate limit. If all models are in cooldown,
-        returns the model whose cooldown expires earliest and the seconds to wait.
+        Picks the next available model.
+        Prioritizes the generous meta-llama/llama-4-scout-17b-16e-instruct whenever available.
+        Falls back to other chat models (Qwen, GPT-OSS, Allam) if in cooldown.
         """
         now = time.time()
         available = [m for m in chat_models if now >= self._model_cooldowns.get(m, 0.0)]
         if available:
+            # 1. Prioritize Llama 4 Scout as primary engine
+            scout_m = next((m for m in available if "scout" in m.lower()), None)
+            if scout_m:
+                return scout_m, 0.0
+
+            # 2. Fallback round-robin across healthy secondary models
             idx = self._model_rotation_idx % len(available)
             self._model_rotation_idx += 1
             return available[idx], 0.0

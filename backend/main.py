@@ -117,17 +117,19 @@ def get_diagnostic():
 
                 chat_models = [m for m in available_models if is_valid_chat_model(m)]
                 preferred = [
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-8b-instant",
-                    "llama3-70b-8192",
-                    "llama3-8b-8192",
+                    "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "meta-llama/llama-4-scout-17b",
+                    "llama-4-scout-17b-16e-instruct",
+                    "llama-4-scout",
                     "qwen/qwen3.8-27b",
                     "qwen/qwen3.6-27b",
                     "openai/gpt-oss-120b",
                     "openai/gpt-oss-20b",
-                    "allam-2-7b"
+                    "allam-2-7b",
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-8b-instant"
                 ]
-                selected_model = chat_models[0] if chat_models else "qwen/qwen3.8-27b"
+                selected_model = chat_models[0] if chat_models else "meta-llama/llama-4-scout-17b-16e-instruct"
                 for pref in preferred:
                     found = next((c for c in chat_models if pref.lower() in c.lower()), None)
                     if found:
