@@ -6,7 +6,7 @@ import uuid
 import httpx
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
-from backend.config import UserTier, BACKEND_DIR, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ANON_KEY
+from backend.config import UserTier, BACKEND_DIR, SUPABASE_URL, SUPABASE_KEY, SUPABASE_ANON_KEY, SUPERADMIN_EMAILS
 
 DB_PATH = os.path.join(BACKEND_DIR, "local_dev.db")
 
@@ -205,10 +205,11 @@ class DatabaseService:
                     user_info = token_data.get("user", {})
                     uid = user_info.get("id")
                     profile = self.get_user_profile(uid)
+                    plan = UserTier.ADMIN if email_clean in SUPERADMIN_EMAILS else profile.get("plan_tier", UserTier.FREE)
                     return {
                         "user_id": uid,
                         "email": email_clean,
-                        "plan_tier": profile.get("plan_tier", UserTier.FREE),
+                        "plan_tier": plan,
                         "access_token": token_data.get("access_token")
                     }
                 else:
@@ -234,21 +235,27 @@ class DatabaseService:
         if not verify_password(password, salt, pwd_hash):
             return None
 
+        plan = UserTier.ADMIN if email_clean in SUPERADMIN_EMAILS else UserTier(plan_tier_str)
         return {
             "user_id": uid,
             "email": uemail,
-            "plan_tier": UserTier(plan_tier_str)
+            "plan_tier": plan
         }
 
     # 2. Profiles
     def get_user_profile(self, user_id: str) -> dict:
+        if user_id and user_id.lower().strip() in SUPERADMIN_EMAILS:
+            return {"user_id": user_id, "email": user_id.lower().strip(), "plan_tier": UserTier.ADMIN}
+
         if self.is_supabase_active() and self.supabase_key:
             try:
                 headers = {"apikey": self.supabase_key, "Authorization": f"Bearer {self.supabase_key}"}
                 r = httpx.get(f"{self.supabase_url}/rest/v1/profiles?id=eq.{user_id}&select=id,email,plan_tier", headers=headers, timeout=3.0)
                 if r.status_code == 200 and r.json():
                     p = r.json()[0]
-                    return {"user_id": p["id"], "email": p["email"], "plan_tier": UserTier(p["plan_tier"])}
+                    email = p.get("email", "").lower().strip()
+                    tier = UserTier.ADMIN if email in SUPERADMIN_EMAILS else UserTier(p["plan_tier"])
+                    return {"user_id": p["id"], "email": p["email"], "plan_tier": tier}
             except Exception as e:
                 print(f"[Supabase get_user_profile error] {e}")
 
@@ -258,7 +265,9 @@ class DatabaseService:
         row = c.fetchone()
         conn.close()
         if row:
-            return {"user_id": row[0], "email": row[1], "plan_tier": UserTier(row[2])}
+            email = row[1].lower().strip()
+            tier = UserTier.ADMIN if email in SUPERADMIN_EMAILS else UserTier(row[2])
+            return {"user_id": row[0], "email": row[1], "plan_tier": tier}
         return {"user_id": user_id, "email": f"{user_id}@example.com", "plan_tier": UserTier.FREE}
 
     def create_or_update_user(self, user_id: str, email: str, plan_tier: UserTier):
@@ -382,6 +391,21 @@ class DatabaseService:
     def get_quota_summary(self, user_id: str) -> Dict[str, Any]:
         profile = self.get_user_profile(user_id)
         tier = profile["plan_tier"]
+        email = profile.get("email", "").lower().strip()
+
+        if tier == UserTier.ADMIN or email in SUPERADMIN_EMAILS:
+            return {
+                "user_id": user_id,
+                "email": profile["email"],
+                "plan_tier": "ADMIN",
+                "daily_used": 0,
+                "daily_limit": "Illimité",
+                "daily_remaining": "Illimité",
+                "monthly_used": 0,
+                "monthly_limit": "Illimité",
+                "monthly_remaining": "Illimité"
+            }
+
         daily_used = self.get_daily_usage(user_id)
         monthly_used = self.get_monthly_usage(user_id)
 

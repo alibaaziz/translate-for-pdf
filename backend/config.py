@@ -17,6 +17,7 @@ class UserTier(str, Enum):
     FREE = 'FREE'
     STARTER = 'STARTER'
     PRO = 'PRO'
+    ADMIN = 'ADMIN'
 
 
 # Business Rules & Quotas by Tier
@@ -56,10 +57,28 @@ TIER_RULES = {
         'watermark_required': False,   # Zéro filigrane
         'priority': 3,                 # Priorité maximale absolue
         'price_monthly_usd': 14.99
+    },
+    UserTier.ADMIN: {
+        'max_pages': 999999,          # Pages 100% illimitées
+        'max_pages_ceiling': 999999,  # Aucun plafond
+        'daily_docs': None,           # Documents/jour illimités
+        'monthly_docs': None,         # Documents/mois illimités
+        'surcharge_over_50_pages_usd': 0.0,
+        'hardware_device': 'cuda',    # Traitement haute vitesse immédiat
+        'watermark_required': False,   # 0 filigrane
+        'priority': 99,               # Priorité maximale
+        'price_monthly_usd': 0.00
     }
 }
 
-# Plafond absolu plateforme (tout utilisateur confondu)
+# Comptes administrateurs VIP avec accès 100% illimité (sans limite de pages ni de docs/jour)
+SUPERADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.environ.get('SUPERADMIN_EMAILS', 'aminiali.mail@gmail.com').split(',')
+    if email.strip()
+}
+
+# Plafond absolu plateforme (utilisateurs standards)
 PLATFORM_ABSOLUTE_MAX_PAGES = 100
 
 # Bouclier 2 : Disjoncteur Global (Circuit Breaker)

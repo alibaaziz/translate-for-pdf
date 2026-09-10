@@ -14,7 +14,7 @@ if PROJECT_ROOT not in sys.path:
 
 from config import SUPPORTED_LANGUAGES, ISO_TO_NLLB
 from backend.config import (
-    UserTier, TIER_RULES, PLATFORM_ABSOLUTE_MAX_PAGES, UPLOADS_DIR, TRANSLATED_DIR
+    UserTier, TIER_RULES, PLATFORM_ABSOLUTE_MAX_PAGES, UPLOADS_DIR, TRANSLATED_DIR, SUPERADMIN_EMAILS
 )
 from backend.models import QuoteResponse, TranslationTaskStatus, CircuitBreakerStatus
 from backend.shields import circuit_breaker, anti_abus_shield
@@ -49,13 +49,27 @@ if os.path.exists(STATIC_DIR):
 
 
 def resolve_user_tier(user_id: Optional[str] = None, authorization: Optional[str] = None) -> tuple[UserTier, Optional[dict]]:
+    if user_id and user_id.strip().lower() in SUPERADMIN_EMAILS:
+        admin_obj = {"user_id": user_id.strip(), "email": user_id.strip().lower(), "plan_tier": UserTier.ADMIN}
+        return (UserTier.ADMIN, admin_obj)
+
+    user_obj = None
     if authorization and authorization.strip():
         user = get_current_user_from_header(authorization)
         if user:
-            return (user["plan_tier"], user)
-    if user_id and user_id.strip():
+            user_obj = user
+    elif user_id and user_id.strip():
         profile = db_service.get_user_profile(user_id)
-        return (profile["plan_tier"], profile)
+        if profile:
+            user_obj = profile
+
+    if user_obj:
+        email = user_obj.get("email", "").lower().strip()
+        if email in SUPERADMIN_EMAILS:
+            user_obj["plan_tier"] = UserTier.ADMIN
+            return (UserTier.ADMIN, user_obj)
+        return (user_obj["plan_tier"], user_obj)
+
     return (UserTier.ANONYMOUS, None)
 
 
@@ -152,7 +166,20 @@ async def get_quote(
     effective_user_id = profile["user_id"] if profile else user_id
     client_ip = request.client.host if request.client else "127.0.0.1"
 
-    # REGLE ABSOLUE 1 : Plafond plateforme a 100 pages
+    # CAS VIP / SUPERADMIN : Accès 100% illimité sans plafond de pages ni quotas
+    if tier == UserTier.ADMIN:
+        return QuoteResponse(
+            page_count=page_count,
+            user_tier=tier,
+            can_translate=True,
+            status="APPROVED",
+            extra_fee_usd=0.0,
+            message=f"Compte SuperAdmin VIP ({page_count} pages) : Accès 100% Illimité sans restriction de pages ni de quota. Zéro filigrane.",
+            device_assigned="cuda",
+            watermark_applied=False
+        )
+
+    # REGLE ABSOLUE 1 : Plafond plateforme a 100 pages (utilisateurs standards)
     if page_count > PLATFORM_ABSOLUTE_MAX_PAGES:
         return QuoteResponse(
             page_count=page_count,

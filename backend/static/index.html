@@ -60,6 +60,7 @@
                         <option value="demo_free" id="opt-free">📧 Inscrit Gratuit (2 docs/j, max 10p)</option>
                         <option value="demo_starter" id="opt-starter">⭐ Abonné Starter ($4.99/m, 150 docs/m, max 20p)</option>
                         <option value="demo_pro" id="opt-pro">👑 Abonné Pro ($14.99/m, Illimité, max 100p)</option>
+                        <option value="aminiali.mail@gmail.com" id="opt-admin">👑 SuperAdmin VIP (Pages & Docs Illimités)</option>
                     </select>
                 </div>
 
@@ -1833,6 +1834,11 @@
                     } else if (quotas.plan_tier === 'PRO') {
                         userQuotaBadge.textContent = `Pro (${quotas.daily_remaining}/10)`;
                         userQuotaBadge.className = "bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px] font-black";
+                    } else if (quotas.plan_tier === 'ADMIN') {
+                        userQuotaBadge.textContent = `👑 VIP ILLIMITÉ`;
+                        userQuotaBadge.className = "bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900 font-black px-2 py-0.5 rounded shadow-sm text-[10px]";
+                        const sel = document.getElementById('user-tier-select');
+                        if (sel) sel.value = 'aminiali.mail@gmail.com';
                     }
                 }
 

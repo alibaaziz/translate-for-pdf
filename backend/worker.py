@@ -81,7 +81,7 @@ def execute_translation_job(task_id: str, input_path: str, output_path: str,
             return
 
         # Bouclier 5 : Application du filigrane pour les utilisateurs gratuits
-        if tier_rule.get('watermark_required', False):
+        if tier_rule.get('watermark_required', False) and tier != UserTier.ADMIN:
             task.message = 'Application du filigrane de sécurité...'
             apply_freemium_watermark(output_path)
             task.watermarked = True
@@ -90,7 +90,7 @@ def execute_translation_job(task_id: str, input_path: str, output_path: str,
         if tier in (UserTier.ANONYMOUS, UserTier.FREE):
             circuit_breaker.record_free_usage()
 
-        if user_id:
+        if user_id and tier != UserTier.ADMIN:
             db_service.increment_daily_usage(user_id)
             db_service.increment_monthly_usage(user_id)
 
