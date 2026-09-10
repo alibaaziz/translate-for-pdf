@@ -194,14 +194,10 @@ class NllbTranslatorEngine:
                     compute_type="int8"
                 )
 
-    def _get_best_groq_model(self, api_key: str) -> str:
-        """
-        Queries Groq /models API to automatically select an active Llama model on the account.
-        Prevents 404 model_not_found errors completely.
-        """
-        cached_model = getattr(self, "_cached_groq_model", None)
-        if cached_model:
-            return cached_model
+    def _get_groq_chat_models(self, api_key: str) -> list:
+        cached = getattr(self, "_cached_groq_chat_models", None)
+        if cached:
+            return cached
 
         def is_valid_chat_model(m_id: str) -> bool:
             low = m_id.lower()
@@ -210,15 +206,15 @@ class NllbTranslatorEngine:
             return True
 
         preferred = [
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.6-27b",
+            "allam-2-7b",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
             "llama3-70b-8192",
-            "llama3-8b-8192",
-            "qwen/qwen3.8-27b",
-            "qwen/qwen3.6-27b",
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-            "allam-2-7b"
+            "llama3-8b-8192"
         ]
 
         try:
@@ -228,22 +224,28 @@ class NllbTranslatorEngine:
                     available = [m["id"] for m in resp.json().get("data", [])]
                     chat_models = [m for m in available if is_valid_chat_model(m)]
 
+                    ordered = []
                     for pref in preferred:
-                        found = next((c for c in chat_models if pref.lower() in c.lower()), None)
-                        if found:
-                            print(f"[Groq Engine] Modele actif selectionne: {found}")
-                            self._cached_groq_model = found
-                            return found
+                        for cand in chat_models:
+                            if pref.lower() in cand.lower() and cand not in ordered:
+                                ordered.append(cand)
+                    for cand in chat_models:
+                        if cand not in ordered:
+                            ordered.append(cand)
 
-                    if chat_models:
-                        print(f"[Groq Engine] Modele alternatif selectionne: {chat_models[0]}")
-                        self._cached_groq_model = chat_models[0]
-                        return chat_models[0]
+                    if ordered:
+                        print(f"[Groq Engine] Modeles de chat valides: {ordered}")
+                        self._cached_groq_chat_models = ordered
+                        return ordered
         except Exception as e:
             print(f"[Groq Engine] Erreur detection des modeles: {e}")
 
-        self._cached_groq_model = "qwen/qwen3.8-27b"
-        return self._cached_groq_model
+        self._cached_groq_chat_models = ["qwen/qwen3.8-27b"]
+        return self._cached_groq_chat_models
+
+    def _get_best_groq_model(self, api_key: str) -> str:
+        models = self._get_groq_chat_models(api_key)
+        return models[0] if models else "qwen/qwen3.8-27b"
 
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
@@ -257,7 +259,7 @@ class NllbTranslatorEngine:
 
         src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
-        model = self._get_best_groq_model(api_key)
+        chat_models = self._get_groq_chat_models(api_key)
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -280,50 +282,56 @@ class NllbTranslatorEngine:
                 f"4. Do NOT output explanations or notes. ONLY valid JSON."
             )
 
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": prompt_instruction},
-                    {"role": "user", "content": json.dumps({"texts": chunk}, ensure_ascii=False)}
-                ],
-                "temperature": 0.1,
-                "response_format": {"type": "json_object"}
-            }
-
             success = False
-            for try_model in [model, "llama-3.1-8b-instant"]:
-                payload["model"] = try_model
-                try:
-                    with httpx.Client(timeout=45.0) as client:
-                        resp = client.post(url, headers=headers, json=payload)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            raw_content = data["choices"][0]["message"]["content"].strip()
-                            if "```" in raw_content:
-                                raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.MULTILINE)
-                                raw_content = re.sub(r"\s*```$", "", raw_content, flags=re.MULTILINE)
-                            start_brace = raw_content.find("{")
-                            end_brace = raw_content.rfind("}")
-                            if start_brace != -1 and end_brace != -1:
-                                raw_content = raw_content[start_brace:end_brace + 1]
+            for try_model in chat_models[:3]:
+                for with_json_fmt in [True, False]:
+                    payload = {
+                        "model": try_model,
+                        "messages": [
+                            {"role": "system", "content": prompt_instruction},
+                            {"role": "user", "content": json.dumps({"texts": chunk}, ensure_ascii=False)}
+                        ],
+                        "temperature": 0.1
+                    }
+                    if with_json_fmt:
+                        payload["response_format"] = {"type": "json_object"}
 
-                            parsed = json.loads(raw_content)
-                            translations = None
-                            if isinstance(parsed, dict):
-                                translations = parsed.get("translations") or parsed.get("translated_texts") or list(parsed.values())[0]
-                            elif isinstance(parsed, list):
-                                translations = parsed
+                    try:
+                        with httpx.Client(timeout=45.0) as client:
+                            resp = client.post(url, headers=headers, json=payload)
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                raw_content = data["choices"][0]["message"]["content"].strip()
+                                if "```" in raw_content:
+                                    raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.MULTILINE)
+                                    raw_content = re.sub(r"\s*```$", "", raw_content, flags=re.MULTILINE)
+                                start_brace = raw_content.find("{")
+                                end_brace = raw_content.rfind("}")
+                                if start_brace != -1 and end_brace != -1:
+                                    raw_content = raw_content[start_brace:end_brace + 1]
 
-                            if isinstance(translations, list) and len(translations) == len(chunk):
-                                all_translated.extend(translations)
-                                success = True
-                                break
+                                parsed = json.loads(raw_content)
+                                translations = None
+                                if isinstance(parsed, dict):
+                                    translations = parsed.get("translations") or parsed.get("translated_texts") or list(parsed.values())[0]
+                                elif isinstance(parsed, list):
+                                    translations = parsed
+
+                                if isinstance(translations, list) and len(translations) == len(chunk):
+                                    all_translated.extend(translations)
+                                    success = True
+                                    break
+                                else:
+                                    print(f"[Groq API] Mismatch length on {try_model}: got {len(translations) if isinstance(translations, list) else 'non-list'}, expected {len(chunk)}")
                             else:
-                                print(f"[Groq API] Mismatch length on {try_model}: got {len(translations) if isinstance(translations, list) else 'non-list'}, expected {len(chunk)}")
-                        else:
-                            print(f"[Groq API] HTTP {resp.status_code} on {try_model}: {resp.text[:300]}")
-                except Exception as e:
-                    print(f"[Groq API] Error on {try_model}: {e}")
+                                print(f"[Groq API] HTTP {resp.status_code} on {try_model}: {resp.text[:300]}")
+                    except Exception as e:
+                        print(f"[Groq API] Error on {try_model}: {e}")
+
+                    if success:
+                        break
+                if success:
+                    break
 
             if not success:
                 print(f"[Groq API] Translation failed for chunk of {len(chunk)} elements.")
