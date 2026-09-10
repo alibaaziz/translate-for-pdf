@@ -1,0 +1,36 @@
+﻿# Secrets & Environnement
+.env
+*.env.local
+
+# Bases de données locales
+*.db
+backend/local_dev.db
+
+# Caches Python & Builds
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+*.spec
+.pytest_cache/
+
+# Fichiers de test temporaires et captures
+*.png
+*.pdf
+*.zip
+scratch_*.py
+bench_*.pdf
+TraducteurPDF_CodeSource/
+TraducteurPDF_CodeSource.zip
+inspection_output/
+
+# Storage temporaire
+backend/storage/uploads/*
+backend/storage/translated/*
+!backend/storage/uploads/.gitkeep
+!backend/storage/translated/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db

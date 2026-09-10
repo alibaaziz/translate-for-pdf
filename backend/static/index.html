@@ -1,0 +1,1967 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>translate-for-pdf.com - Traduction de PDF Haute-Fidélité avec Préservation des Schémas</title>
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Mozilla PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Google Font: Plus Jakarta Sans & Noto Sans Arabic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        [dir="rtl"] { font-family: 'Noto Sans Arabic', 'Plus Jakarta Sans', sans-serif; }
+        .drag-active { border-color: #9333ea !important; background-color: #faf5ff !important; }
+        .pdf-canvas { max-width: 100%; height: auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1); border-radius: 4px; }
+        /* Custom scrollbar for language dropdown */
+        #lang-dropdown-menu::-webkit-scrollbar { width: 6px; }
+        #lang-dropdown-menu::-webkit-scrollbar-track { background: #f1f5f9; }
+        #lang-dropdown-menu::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col transition-colors duration-150">
+
+    <!-- 1. TOP NAVBAR -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            
+            <!-- Brand Logo -->
+            <div class="flex items-center space-x-3 rtl:space-x-reverse">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white font-black text-xl shadow-md shadow-purple-200">
+                    TP
+                </div>
+                <div>
+                    <span class="text-lg font-bold bg-gradient-to-r from-purple-700 to-indigo-600 bg-clip-text text-transparent">
+                        translate-for-pdf<span class="text-purple-600">.com</span>
+                    </span>
+                    <span data-i18n="tagline" class="hidden sm:inline-block ml-2 rtl:mr-2 rtl:ml-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        100% Vectoriel
+                    </span>
+                </div>
+            </div>
+
+            <!-- Right Controls: Quota Pill + Tier Simulator + Pricing + Flag Selector -->
+            <div class="flex items-center space-x-2.5 sm:space-x-3 rtl:space-x-reverse text-sm">
+                
+                <!-- Shield status pill -->
+                <div id="shield-pill" class="hidden xl:flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium border border-slate-200">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span id="shield-text">Disjoncteur : 200/200 gratuits restants</span>
+                </div>
+
+                <!-- User Tier Selector -->
+                <div class="flex items-center space-x-1.5 rtl:space-x-reverse">
+                    <label for="user-tier-select" class="hidden md:inline text-xs font-semibold text-slate-500" data-i18n="plan_label">Plan :</label>
+                    <select id="user-tier-select" class="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-semibold text-xs border border-purple-200 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer max-w-[140px] sm:max-w-[210px] truncate">
+                        <option value="" id="opt-anon">👤 Mode Anonyme (1 doc/j, max 5p)</option>
+                        <option value="demo_free" id="opt-free">📧 Inscrit Gratuit (2 docs/j, max 10p)</option>
+                        <option value="demo_starter" id="opt-starter">⭐ Abonné Starter ($4.99/m, 150 docs/m, max 20p)</option>
+                        <option value="demo_pro" id="opt-pro">👑 Abonné Pro ($14.99/m, Illimité, max 100p)</option>
+                    </select>
+                </div>
+
+                <!-- Pricing link -->
+                <button onclick="document.getElementById('pricing-modal').scrollIntoView({behavior: 'smooth'})" class="hidden sm:inline-block px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-sm transition whitespace-nowrap" data-i18n="nav_pricing">
+                    Nos Tarifs
+                </button>
+
+                
+                <!-- Auth Area: Guest Buttons vs User Badge -->
+                <div id="auth-guest-area" class="flex items-center space-x-2">
+                    <button id="btn-open-auth-modal" type="button" onclick="openAuthModal('login')" class="px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs border border-purple-200 shadow-sm transition flex items-center space-x-1.5">
+                        <span>🔑</span>
+                        <span data-i18n="nav_auth_btn">Connexion / Inscription</span>
+                    </button>
+                </div>
+
+                <div id="auth-user-area" class="hidden flex items-center space-x-2 rtl:space-x-reverse">
+                    <div class="flex items-center space-x-1.5 bg-purple-50 text-purple-800 px-2.5 py-1 rounded-lg border border-purple-200 text-xs font-semibold">
+                        <span class="text-sm">👤</span>
+                        <span id="user-display-email" class="max-w-[110px] sm:max-w-[160px] truncate">user@email.com</span>
+                        <span id="user-quota-badge" class="bg-purple-600 text-white px-1.5 py-0.2 rounded text-[10px] font-black">2/2</span>
+                    </div>
+                    <button id="btn-logout" type="button" onclick="handleLogout()" class="text-xs text-slate-500 hover:text-rose-600 font-semibold underline p-1" data-i18n="auth_logout">
+                        Déconnexion
+                    </button>
+                </div>
+
+                <!-- LANGUAGE SELECTOR WITH FLAGS (TOP RIGHT) -->
+                <div class="relative inline-block text-left" id="lang-selector-container">
+                    <button id="btn-lang-toggle" type="button" class="flex items-center space-x-1.5 rtl:space-x-reverse px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 shadow-sm text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <span id="current-flag" class="text-base leading-none">🇫🇷</span>
+                        <span id="current-lang-name" class="hidden md:inline text-xs font-bold text-slate-700">Français</span>
+                        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+
+                    <!-- Dropdown List of Languages with Flags -->
+                    <div id="lang-dropdown-menu" class="hidden absolute right-0 rtl:right-auto rtl:left-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 max-h-80 overflow-y-auto">
+                        <div class="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100" data-i18n="lang_menu_title">
+                            Langue de l'interface
+                        </div>
+                        <div id="lang-menu-items" class="p-1 space-y-0.5">
+                            <!-- Injected by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </header>
+
+    <!-- 2. HERO & MAIN WORKSPACE -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Hero Header -->
+        <div class="text-center max-w-3xl mx-auto mb-8">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                <span data-i18n="hero_title_1">Traduisez vos documents PDF</span> <br class="hidden sm:inline">
+                <span data-i18n="hero_title_2" class="bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">sans altérer vos figures ni vos schémas</span>
+            </h1>
+            <p data-i18n="hero_subtitle" class="mt-3 text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
+                La seule technologie qui préserve vos graphiques, plans d'ingénierie et tableaux avec une fidélité vectorielle absolue. 50% moins cher que DeepL.
+            </p>
+        </div>
+
+        <!-- 3. UPLOAD & DIAGNOSTIC CARD (STEP 1) -->
+        <div id="workspace-upload" class="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 transition-all">
+            
+            <!-- Drag & Drop Zone -->
+            <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-purple-500 rounded-xl p-8 sm:p-12 text-center cursor-pointer transition bg-slate-50/50 hover:bg-purple-50/30">
+                <input type="file" id="file-input" accept="application/pdf" class="hidden">
+                <div class="w-14 h-14 mx-auto mb-3 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                </div>
+                <h3 data-i18n="drop_title" class="text-base font-semibold text-slate-800">Glissez-déposez votre document PDF ici</h3>
+                <p data-i18n="drop_sub" class="text-xs text-slate-500 mt-1">ou cliquez pour parcourir vos fichiers (max 100 pages)</p>
+            </div>
+
+            <!-- File Details & Instant Diagnostic (Hidden by default) -->
+            <div id="diagnostic-box" class="hidden mt-6 pt-6 border-t border-slate-100">
+                <div class="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                    <div class="flex items-center space-x-3 rtl:space-x-reverse truncate">
+                        <span class="text-2xl">📄</span>
+                        <div class="truncate">
+                            <p id="doc-name" class="text-sm font-bold text-slate-800 truncate">document.pdf</p>
+                            <p id="doc-pages" class="text-xs text-slate-500">19 pages détectées</p>
+                        </div>
+                    </div>
+                    <button id="btn-change-file" data-i18n="btn_change" class="text-xs text-purple-600 hover:text-purple-800 font-semibold px-2 py-1">
+                        Changer
+                    </button>
+                </div>
+
+                <!-- Tier Rule Message Alert -->
+                <div id="tier-alert" class="mt-3 p-3.5 rounded-xl text-xs flex items-start space-x-2.5 rtl:space-x-reverse">
+                    <span id="tier-alert-icon" class="text-base">ℹ️</span>
+                    <div id="tier-alert-text" class="flex-1 font-medium leading-relaxed">
+                        Diagnostic de conformité en cours...
+                    </div>
+                </div>
+
+                <!-- Language Selection Grid -->
+                <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label data-i18n="lbl_source_lang" class="block text-xs font-semibold text-slate-700 mb-1">Langue d'origine</label>
+                        <select id="select-source-lang" class="w-full text-sm rounded-lg border border-slate-300 p-2.5 bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                            <option value="en">Anglais (English)</option>
+                            <option value="fr">Français</option>
+                            <option value="ar">Arabe (العربية)</option>
+                            <option value="es">Espagnol (Español)</option>
+                            <option value="de">Allemand (Deutsch)</option>
+                            <option value="it">Italien (Italiano)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label data-i18n="lbl_target_lang" class="block text-xs font-semibold text-slate-700 mb-1">Langue de destination</label>
+                        <select id="select-target-lang" class="w-full text-sm rounded-lg border border-slate-300 p-2.5 bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                            <option value="fr" selected>Français</option>
+                            <option value="ar">Arabe (العربية)</option>
+                            <option value="en">Anglais (English)</option>
+                            <option value="es">Espagnol (Español)</option>
+                            <option value="de">Allemand (Deutsch)</option>
+                            <option value="it">Italien (Italiano)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Option: Preserve Figures -->
+                <div class="mt-4 flex items-center space-x-2.5 rtl:space-x-reverse bg-purple-50/50 p-2.5 rounded-lg border border-purple-100">
+                    <input type="checkbox" id="chk-preserve-figures" checked class="w-4 h-4 text-purple-600 rounded focus:ring-purple-500">
+                    <label for="chk-preserve-figures" data-i18n="chk_figures" class="text-xs text-slate-700 font-medium cursor-pointer">
+                        Conserver 100% des figures, schémas vectoriels et légendes sans altération (Recommandé)
+                    </label>
+                </div>
+
+                <!-- Action Translate Button -->
+                <div class="mt-6">
+                    <button id="btn-start-translate" class="w-full py-3.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-sm shadow-md shadow-purple-200 transition flex items-center justify-center space-x-2 rtl:space-x-reverse">
+                        <span data-i18n="btn_translate">Lancer la traduction</span>
+                        <svg class="w-4 h-4 rtl:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. PROGRESS BAR SECTION (STEP 2) -->
+        <div id="workspace-progress" class="hidden max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center my-6">
+            <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 animate-spin">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+            </div>
+            <h3 data-i18n="progress_title" class="text-base font-bold text-slate-900">Traduction en cours...</h3>
+            <p id="progress-message" data-i18n="progress_sub" class="text-xs text-slate-500 mt-1">Traitement par IA haute fidélité...</p>
+
+            <div class="w-full bg-slate-100 rounded-full h-3 mt-5 overflow-hidden border border-slate-200">
+                <div id="progress-bar-fill" class="bg-gradient-to-r from-purple-600 to-indigo-600 h-full rounded-full transition-all duration-300" style="width: 5%"></div>
+            </div>
+            <p id="progress-percent" class="text-xs font-bold text-purple-700 mt-2">5 %</p>
+        </div>
+
+        <!-- 5. SYNCHRONIZED BILINGUAL PDF VIEWER (STEP 3) -->
+        <div id="workspace-viewer" class="hidden mt-8">
+            <!-- Viewer Toolbar -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3.5 mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center space-x-2 rtl:space-x-reverse">
+                    <button id="btn-prev-page" data-i18n="btn_prev" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs font-semibold">
+                        ← Page précédente
+                    </button>
+                    <span id="viewer-page-indicator" class="text-xs font-bold px-3 py-1 rounded bg-slate-100 text-slate-700">
+                        Page 1 / 1
+                    </span>
+                    <button id="btn-next-page" data-i18n="btn_next" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs font-semibold">
+                        Page suivante →
+                    </button>
+                </div>
+
+                <div class="flex items-center space-x-3 rtl:space-x-reverse">
+                    <button id="btn-translate-another" data-i18n="btn_another" class="text-xs text-slate-600 hover:text-slate-900 font-medium">
+                        Traduire un autre PDF
+                    </button>
+                    <a id="btn-download-pdf" href="#" download class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition flex items-center space-x-1.5 rtl:space-x-reverse">
+                        <span data-i18n="btn_download">📥 Télécharger le PDF Traduit</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Side-by-Side Canvas Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <!-- Left: Original -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                    <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+                        <span class="text-xs font-bold text-slate-700 flex items-center space-x-1.5 rtl:space-x-reverse">
+                            <span>📄</span> <span data-i18n="view_orig">Version Originale</span>
+                        </span>
+                        <span class="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 uppercase" id="badge-source-lang">EN</span>
+                    </div>
+                    <div class="flex justify-center overflow-auto max-h-[750px] p-2 bg-slate-100/50 rounded-lg">
+                        <canvas id="canvas-original" class="pdf-canvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Right: Translated -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                    <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+                        <span class="text-xs font-bold text-purple-700 flex items-center space-x-1.5 rtl:space-x-reverse">
+                            <span>✨</span> <span data-i18n="view_trans">Version Traduite (100% vectorielle)</span>
+                        </span>
+                        <span class="text-[11px] font-semibold px-2 py-0.5 rounded bg-purple-100 text-purple-700 uppercase" id="badge-target-lang">FR</span>
+                    </div>
+                    <div class="flex justify-center overflow-auto max-h-[750px] p-2 bg-purple-50/20 rounded-lg">
+                        <canvas id="canvas-translated" class="pdf-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. PRICING SECTION -->
+        <div id="pricing-modal" class="mt-20 pt-12 border-t border-slate-200 max-w-5xl mx-auto">
+            <div class="text-center mb-10">
+                <h2 data-i18n="pricing_title" class="text-2xl sm:text-3xl font-bold text-slate-900">Des tarifs 50% moins chers que DeepL</h2>
+                <p data-i18n="pricing_subtitle" class="text-xs sm:text-sm text-slate-500 mt-1">30x plus de documents et zéro schéma cassé</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Free -->
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <span data-i18n="tier_free_name" class="text-xs font-bold text-slate-500 uppercase tracking-wider">Gratuit</span>
+                        <div class="mt-2 flex items-baseline text-slate-900">
+                            <span class="text-3xl font-extrabold">0 $</span>
+                            <span data-i18n="per_month" class="text-xs text-slate-500 ml-1 rtl:mr-1 rtl:ml-0">/ mois</span>
+                        </div>
+                        <ul class="mt-4 space-y-2.5 text-xs text-slate-600">
+                            <li data-i18n="tier_free_b1">✔ <strong>1 doc / jour</strong> (Anonyme, max 5p)</li>
+                            <li data-i18n="tier_free_b2">✔ <strong>2 docs / jour</strong> (Inscrit, max 10p)</li>
+                            <li data-i18n="tier_free_b3">✔ Préservation des figures et formules</li>
+                            <li data-i18n="tier_free_b4" class="text-slate-400">✖ Filigrane discret en bas de page</li>
+                        </ul>
+                    </div>
+                    <button data-i18n="tier_free_btn" class="mt-6 w-full py-2.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                        Offre active
+                    </button>
+                </div>
+
+                <!-- Starter (Recommended) -->
+                <div class="bg-white rounded-2xl p-6 border-2 border-purple-600 shadow-lg shadow-purple-100 relative flex flex-col justify-between">
+                    <span data-i18n="tier_starter_badge" class="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-purple-600 text-white text-[10px] uppercase font-black px-3 py-0.5 rounded-full tracking-wider whitespace-nowrap">
+                        Populaire • 30x DeepL
+                    </span>
+                    <div>
+                        <span data-i18n="tier_starter_name" class="text-xs font-bold text-purple-700 uppercase tracking-wider">Starter</span>
+                        <div class="mt-2 flex items-baseline text-slate-900">
+                            <span class="text-3xl font-extrabold">4,99 $</span>
+                            <span data-i18n="per_month" class="text-xs text-slate-500 ml-1 rtl:mr-1 rtl:ml-0">/ mois</span>
+                        </div>
+                        <ul class="mt-4 space-y-2.5 text-xs text-slate-600">
+                            <li data-i18n="tier_starter_b1">✔ <strong>150 documents / mois</strong></li>
+                            <li data-i18n="tier_starter_b2">✔ <strong>Jusqu'à 20 pages</strong> par document</li>
+                            <li data-i18n="tier_starter_b3">✔ <strong>Accélération IA</strong> haute vitesse</li>
+                            <li data-i18n="tier_starter_b4">✔ <strong>Zéro filigrane</strong></li>
+                        </ul>
+                    </div>
+                    <button onclick="subscribeToTier('STARTER')" data-i18n="tier_starter_btn" class="mt-6 w-full py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-xs font-bold text-white shadow transition">
+                        Choisir Starter
+                    </button>
+                </div>
+
+                <!-- Pro -->
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <span data-i18n="tier_pro_name" class="text-xs font-bold text-indigo-600 uppercase tracking-wider">Professionnel</span>
+                        <div class="mt-2 flex items-baseline text-slate-900">
+                            <span class="text-3xl font-extrabold">14,99 $</span>
+                            <span data-i18n="per_month" class="text-xs text-slate-500 ml-1 rtl:mr-1 rtl:ml-0">/ mois</span>
+                        </div>
+                        <ul class="mt-4 space-y-2.5 text-xs text-slate-600">
+                            <li data-i18n="tier_pro_b1">✔ <strong>Traductions Illimitées</strong> (max 10 docs/jour)</li>
+                            <li data-i18n="tier_pro_b2">✔ <strong>Jusqu'à 50 pages incluses</strong></li>
+                            <li data-i18n="tier_pro_b3">✔ Docs 51 à 100 pages (+0,99 $)</li>
+                            <li data-i18n="tier_pro_b4">✔ Priorité IA maximale</li>
+                        </ul>
+                    </div>
+                    <button onclick="subscribeToTier('PRO')" data-i18n="tier_pro_btn" class="mt-6 w-full py-2.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700 transition">
+                        Choisir Pro
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 7. FOOTER -->
+    <footer class="bg-white border-t border-slate-200 py-6 mt-12 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto px-4">
+            <p data-i18n="footer_text">© 2026 translate-for-pdf.com • Technologie IA avancée / Fichiers purgés sous 24h (RGPD)</p>
+        </div>
+    </footer>
+
+    <!-- JAVASCRIPT APPLICATION LOGIC & COMPLETE I18N SYSTEM -->
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // 1. ALL 14 SUPPORTED LANGUAGES DEFINITION (Matches user image exactly)
+        const UI_LANGUAGES = [
+            { code: 'en', flag: '🇬🇧', name: 'Anglais (English)', nativeName: 'English' },
+            { code: 'fr', flag: '🇫🇷', name: 'Français', nativeName: 'Français' },
+            { code: 'es', flag: '🇪🇸', name: 'Espagnol (Español)', nativeName: 'Español' },
+            { code: 'de', flag: '🇩🇪', name: 'Allemand (Deutsch)', nativeName: 'Deutsch' },
+            { code: 'it', flag: '🇮🇹', name: 'Italien (Italiano)', nativeName: 'Italiano' },
+            { code: 'pt', flag: '🇵🇹', name: 'Portugais (Português)', nativeName: 'Português' },
+            { code: 'ru', flag: '🇷🇺', name: 'Russe (Русский)', nativeName: 'Русский' },
+            { code: 'zh', flag: '🇨🇳', name: 'Chinois (中文 - Simplifié)', nativeName: '中文 (简体)' },
+            { code: 'ja', flag: '🇯🇵', name: 'Japonais (日本語)', nativeName: '日本語' },
+            { code: 'ar', flag: '🇸🇦', name: 'Arabe (العربية)', nativeName: 'العربية', dir: 'rtl' },
+            { code: 'nl', flag: '🇳🇱', name: 'Néerlandais (Nederlands)', nativeName: 'Nederlands' },
+            { code: 'pl', flag: '🇵🇱', name: 'Polonais (Polski)', nativeName: 'Polski' },
+            { code: 'tr', flag: '🇹🇷', name: 'Turc (Türkçe)', nativeName: 'Türkçe' },
+            { code: 'hi', flag: '🇮🇳', name: 'Hindi (हिन्दी)', nativeName: 'हिन्दी' }
+        ];
+
+        // 2. COMPLETE TRANSLATIONS FOR ALL 14 LANGUAGES
+        const I18N = {
+            fr: {
+                nav_auth_btn: "Connexion / Inscription",
+                auth_logout: "Déconnexion",
+                auth_tab_login: "Se connecter",
+                auth_tab_register: "Créer un compte",
+                auth_lbl_email: "Adresse Email",
+                auth_email_hint: "Anti-spam : Les emails temporaires/jetables sont refusés.",
+                auth_lbl_pwd: "Mot de passe",
+                auth_perks_title: "🎁 Débloquez immédiatement :",
+                auth_perks_1: "• 2 documents gratuits / jour (au lieu de 1)",
+                auth_perks_2: "• Jusqu'à 10 pages (au lieu de 5)",
+                auth_perks_3: "• 100% gratuit à vie • Sans carte bancaire",
+                auth_btn_login_submit: "Se connecter",
+                auth_btn_register_submit: "Créer mon compte gratuit",
+
+                tagline: "100% Vectoriel",
+                plan_label: "Plan :",
+                plan_anon: "👤 Mode Anonyme (1 doc/j, max 5p)",
+                plan_free: "📧 Inscrit Gratuit (2 docs/j, max 10p)",
+                plan_starter: "⭐ Abonné Starter ($4.99/m, 150 docs/m, max 20p)",
+                plan_pro: "👑 Abonné Pro ($14.99/m, Illimité, max 100p)",
+                nav_pricing: "Nos Tarifs",
+                lang_menu_title: "Langue de l'interface",
+                hero_title_1: "Traduisez vos documents PDF",
+                hero_title_2: "sans altérer vos figures ni vos schémas",
+                hero_subtitle: "La seule technologie qui préserve vos graphiques, plans d'ingénierie et tableaux avec une fidélité vectorielle absolue. 50% moins cher que DeepL.",
+                drop_title: "Glissez-déposez votre document PDF ici",
+                drop_sub: "ou cliquez pour parcourir vos fichiers (max 100 pages)",
+                btn_change: "Changer",
+                lbl_source_lang: "Langue d'origine",
+                lbl_target_lang: "Langue de destination",
+                chk_figures: "Conserver 100% des figures, schémas vectoriels et légendes sans altération (Recommandé)",
+                btn_translate: "Lancer la traduction",
+                progress_title: "Traduction en cours...",
+                progress_sub: "Traitement par IA haute fidélité...",
+                btn_prev: "← Page précédente",
+                btn_next: "Page suivante →",
+                btn_another: "Traduire un autre PDF",
+                btn_download: "📥 Télécharger le PDF Traduit",
+                view_orig: "Version Originale",
+                view_trans: "Version Traduite (100% vectorielle)",
+                pricing_title: "Des tarifs 50% moins chers que DeepL",
+                pricing_subtitle: "30x plus de documents et zéro schéma cassé",
+                per_month: "/ mois",
+                tier_free_name: "Gratuit",
+                tier_free_b1: "✔ <strong>1 doc / jour</strong> (Anonyme, max 5p)",
+                tier_free_b2: "✔ <strong>2 docs / jour</strong> (Inscrit, max 10p)",
+                tier_free_b3: "✔ Préservation des figures et formules",
+                tier_free_b4: "✖ Filigrane discret en bas de page",
+                tier_free_btn: "Offre active",
+                tier_starter_badge: "Populaire • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 documents / mois</strong>",
+                tier_starter_b2: "✔ <strong>Jusqu'à 20 pages</strong> par document",
+                tier_starter_b3: "✔ <strong>Accélération IA</strong> haute vitesse",
+                tier_starter_b4: "✔ <strong>Zéro filigrane</strong>",
+                tier_starter_btn: "Choisir Starter",
+                tier_pro_name: "Professionnel",
+                tier_pro_b1: "✔ <strong>Traductions Illimitées</strong> (max 10 docs/jour)",
+                tier_pro_b2: "✔ <strong>Jusqu'à 50 pages incluses</strong>",
+                tier_pro_b3: "✔ Docs 51 à 100 pages (+0,99 $)",
+                tier_pro_b4: "✔ Priorité IA maximale",
+                tier_pro_btn: "Choisir Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Technologie IA avancée / Fichiers purgés sous 24h (RGPD)"
+            },
+            en: {
+                nav_auth_btn: "Sign In / Register",
+                auth_logout: "Sign Out",
+                auth_tab_login: "Sign In",
+                auth_tab_register: "Create Account",
+                auth_lbl_email: "Email Address",
+                auth_email_hint: "Anti-abuse: Disposable email addresses are blocked.",
+                auth_lbl_pwd: "Password",
+                auth_perks_title: "🎁 Unlock immediately:",
+                auth_perks_1: "• 2 free documents / day (instead of 1)",
+                auth_perks_2: "• Up to 10 pages (instead of 5)",
+                auth_perks_3: "• 100% free forever • No credit card needed",
+                auth_btn_login_submit: "Sign In",
+                auth_btn_register_submit: "Create Free Account",
+
+                tagline: "100% Vector Preserved",
+                plan_label: "Tier:",
+                plan_anon: "👤 Anonymous Visitor (1 doc/d, max 5p)",
+                plan_free: "📧 Free Registered (2 docs/d, max 10p)",
+                plan_starter: "⭐ Starter Plan ($4.99/mo, 150 docs/mo, max 20p)",
+                plan_pro: "👑 Pro Plan ($14.99/mo, Unlimited, max 100p)",
+                nav_pricing: "Pricing",
+                lang_menu_title: "Interface Language",
+                hero_title_1: "Translate your PDF documents",
+                hero_title_2: "without altering figures or diagrams",
+                hero_subtitle: "The only technology preserving graphs, engineering blueprints, and tables with absolute vector fidelity. 50% cheaper than DeepL.",
+                drop_title: "Drag and drop your PDF document here",
+                drop_sub: "or click to browse your files (max 100 pages)",
+                btn_change: "Change",
+                lbl_source_lang: "Source language",
+                lbl_target_lang: "Target language",
+                chk_figures: "Preserve 100% of figures, vector diagrams, and captions intact (Recommended)",
+                btn_translate: "Start translation",
+                progress_title: "Translation in progress...",
+                progress_sub: "High-fidelity AI processing...",
+                btn_prev: "← Previous page",
+                btn_next: "Next page →",
+                btn_another: "Translate another PDF",
+                btn_download: "📥 Download Translated PDF",
+                view_orig: "Original Version",
+                view_trans: "Translated Version (100% vector)",
+                pricing_title: "Pricing 50% Cheaper than DeepL",
+                pricing_subtitle: "30x more documents and zero broken diagrams",
+                per_month: "/ month",
+                tier_free_name: "Free",
+                tier_free_b1: "✔ <strong>1 doc / day</strong> (Anonymous, max 5p)",
+                tier_free_b2: "✔ <strong>2 docs / day</strong> (Registered, max 10p)",
+                tier_free_b3: "✔ Preserves figures & formulas",
+                tier_free_b4: "✖ Subtle watermark at footer",
+                tier_free_btn: "Active Plan",
+                tier_starter_badge: "Popular • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 documents / month</strong>",
+                tier_starter_b2: "✔ <strong>Up to 20 pages</strong> per document",
+                tier_starter_b3: "✔ <strong>High-speed AI</strong> acceleration",
+                tier_starter_b4: "✔ <strong>Zero watermark</strong>",
+                tier_starter_btn: "Choose Starter",
+                tier_pro_name: "Professional",
+                tier_pro_b1: "✔ <strong>Unlimited Translations</strong> (max 10 docs/day)",
+                tier_pro_b2: "✔ <strong>Up to 50 pages included</strong>",
+                tier_pro_b3: "✔ Docs 51 to 100 pages (+0.99 $)",
+                tier_pro_b4: "✔ Maximum AI priority",
+                tier_pro_btn: "Choose Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Advanced AI Technology / Files purged within 24h (GDPR)"
+            },
+            es: {
+                nav_auth_btn: "Iniciar sesión / Registrarse",
+                auth_logout: "Cerrar sesión",
+                auth_tab_login: "Iniciar sesión",
+                auth_tab_register: "Crear cuenta",
+                auth_lbl_email: "Correo electrónico",
+                auth_email_hint: "Anti-abuso: Los correos temporales están bloqueados.",
+                auth_lbl_pwd: "Contraseña",
+                auth_perks_title: "🎁 Desbloquea ahora:",
+                auth_perks_1: "• 2 documentos gratis / día (en vez de 1)",
+                auth_perks_2: "• Hasta 10 páginas (en vez de 5)",
+                auth_perks_3: "• 100% gratis siempre • Sin tarjeta",
+                auth_btn_login_submit: "Iniciar sesión",
+                auth_btn_register_submit: "Crear cuenta gratis",
+
+                tagline: "100% Vectorial",
+                plan_label: "Plan:",
+                plan_anon: "👤 Modo Anónimo (1 doc/d, máx 5p)",
+                plan_free: "📧 Registro Gratis (2 docs/d, máx 10p)",
+                plan_starter: "⭐ Suscriptor Starter ($4.99/m, 150 docs/m, máx 20p)",
+                plan_pro: "👑 Suscriptor Pro ($14.99/m, Ilimitado, máx 100p)",
+                nav_pricing: "Nuestras Tarifas",
+                lang_menu_title: "Idioma de la interfaz",
+                hero_title_1: "Traduce tus documentos PDF",
+                hero_title_2: "sin alterar figuras ni diagramas",
+                hero_subtitle: "La única tecnología que preserva tus gráficos, planos de ingeniería y tablas con fidelidad vectorial absoluta. 50% más barato que DeepL.",
+                drop_title: "Arrastra y suelta tu documento PDF aquí",
+                drop_sub: "o haz clic para explorar archivos (máx 100 páginas)",
+                btn_change: "Cambiar",
+                lbl_source_lang: "Idioma de origen",
+                lbl_target_lang: "Idioma de destino",
+                chk_figures: "Conservar el 100% de figuras, esquemas vectoriales y leyendas sin alteración (Recomendado)",
+                btn_translate: "Iniciar traducción",
+                progress_title: "Traducción en curso...",
+                progress_sub: "Procesamiento de IA de alta fidelidad...",
+                btn_prev: "← Página anterior",
+                btn_next: "Página siguiente →",
+                btn_another: "Traducir otro PDF",
+                btn_download: "📥 Descargar PDF Traducido",
+                view_orig: "Versión Original",
+                view_trans: "Versión Traducida (100% vectorial)",
+                pricing_title: "Precios 50% más baratos que DeepL",
+                pricing_subtitle: "30 veces más documentos y cero esquemas rotos",
+                per_month: "/ mes",
+                tier_free_name: "Gratis",
+                tier_free_b1: "✔ <strong>1 doc / día</strong> (Anónimo, máx 5p)",
+                tier_free_b2: "✔ <strong>2 docs / día</strong> (Registrado, máx 10p)",
+                tier_free_b3: "✔ Preservación de figuras y fórmulas",
+                tier_free_b4: "✖ Marca de agua publicitaria discreta",
+                tier_free_btn: "Oferta activa",
+                tier_starter_badge: "Popular • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 documentos / mes</strong>",
+                tier_starter_b2: "✔ <strong>Hasta 20 páginas</strong> por documento",
+                tier_starter_b3: "✔ <strong>Aceleración IA</strong> de alta velocidad",
+                tier_starter_b4: "✔ <strong>Cero marca de agua</strong>",
+                tier_starter_btn: "Elegir Starter",
+                tier_pro_name: "Profesional",
+                tier_pro_b1: "✔ <strong>Traducciones Ilimitadas</strong> (máx 10 docs/día)",
+                tier_pro_b2: "✔ <strong>Hasta 50 páginas incluidas</strong>",
+                tier_pro_b3: "✔ Docs 51 a 100 páginas (+0,99 $)",
+                tier_pro_b4: "✔ Máxima prioridad de IA",
+                tier_pro_btn: "Elegir Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Tecnología IA avanzada / Archivos eliminados en 24h (RGPD)"
+            },
+            de: {
+                nav_auth_btn: "Anmelden / Registrieren",
+                auth_logout: "Abmelden",
+                auth_tab_login: "Anmelden",
+                auth_tab_register: "Konto erstellen",
+                auth_lbl_email: "E-Mail-Adresse",
+                auth_email_hint: "Wegwerf-E-Mails sind gesperrt.",
+                auth_lbl_pwd: "Passwort",
+                auth_perks_title: "🎁 Sofort freischalten:",
+                auth_perks_1: "• 2 kostenlose Dokumente / Tag (statt 1)",
+                auth_perks_2: "• Bis zu 10 Seiten (statt 5)",
+                auth_perks_3: "• 100% dauerhaft kostenlos • Keine Kreditkarte",
+                auth_btn_login_submit: "Anmelden",
+                auth_btn_register_submit: "Kostenloses Konto erstellen",
+
+                tagline: "100% Vektoriell",
+                plan_label: "Plan:",
+                plan_anon: "👤 Anonymer Modus (1 Dok/T, max 5S)",
+                plan_free: "📧 Kostenlos Registriert (2 Dok/T, max 10S)",
+                plan_starter: "⭐ Starter Abo ($4.99/Monat, 150 Dok/M, max 20S)",
+                plan_pro: "👑 Pro Abo ($14.99/Monat, Unbegrenzt, max 100S)",
+                nav_pricing: "Preise",
+                lang_menu_title: "Sprache der Benutzeroberfläche",
+                hero_title_1: "Übersetzen Sie Ihre PDF-Dokumente",
+                hero_title_2: "ohne Abbildungen oder Diagramme zu verändern",
+                hero_subtitle: "Die einzige Technologie, die Diagramme, technische Zeichnungen und Tabellen mit absoluter Vektorgenauigkeit bewahrt. 50 % günstiger als DeepL.",
+                drop_title: "Ziehen Sie Ihr PDF-Dokument hierher",
+                drop_sub: "oder klicken Sie zum Durchsuchen (max. 100 Seiten)",
+                btn_change: "Ändern",
+                lbl_source_lang: "Ausgangssprache",
+                lbl_target_lang: "Zielsprache",
+                chk_figures: "100 % der Abbildungen, Vektordiagramme und Bildunterschriften unverändert beibehalten (Empfohlen)",
+                btn_translate: "Übersetzung starten",
+                progress_title: "Übersetzung läuft...",
+                progress_sub: "Hochpräzise KI-Verarbeitung...",
+                btn_prev: "← Vorherige Seite",
+                btn_next: "Nächste Seite →",
+                btn_another: "Weiteres PDF übersetzen",
+                btn_download: "📥 Übersetztes PDF herunterladen",
+                view_orig: "Originalversion",
+                view_trans: "Übersetzte Version (100% vektoriell)",
+                pricing_title: "Tarife 50% günstiger als DeepL",
+                pricing_subtitle: "30-mal mehr Dokumente und null zerstörte Diagramme",
+                per_month: "/ Monat",
+                tier_free_name: "Kostenlos",
+                tier_free_b1: "✔ <strong>1 Dok / Tag</strong> (Anonym, max 5S)",
+                tier_free_b2: "✔ <strong>2 Dok / Tag</strong> (Registriert, max 10S)",
+                tier_free_b3: "✔ Bewahrung von Figuren & Formeln",
+                tier_free_b4: "✖ Diskretes Wasserzeichen",
+                tier_free_btn: "Aktives Angebot",
+                tier_starter_badge: "Beliebt • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 Dokumente / Monat</strong>",
+                tier_starter_b2: "✔ <strong>Bis zu 20 Seiten</strong> pro Dokument",
+                tier_starter_b3: "✔ <strong>Highspeed-KI</strong>-Beschleunigung",
+                tier_starter_b4: "✔ <strong>Kein Wasserzeichen</strong>",
+                tier_starter_btn: "Starter wählen",
+                tier_pro_name: "Profi",
+                tier_pro_b1: "✔ <strong>Unbegrenzte Übersetzungen</strong> (max 10 Dok/Tag)",
+                tier_pro_b2: "✔ <strong>Bis zu 50 Seiten inklusive</strong>",
+                tier_pro_b3: "✔ Dok 51 bis 100 Seiten (+0,99 $)",
+                tier_pro_b4: "✔ Maximale KI-Priorität",
+                tier_pro_btn: "Pro wählen",
+                footer_text: "© 2026 translate-for-pdf.com • Fortschrittliche KI-Technologie / Löschung nach 24h (DSGVO)"
+            },
+            it: {
+                nav_auth_btn: "Accedi / Registrati",
+                auth_logout: "Disconnetti",
+                auth_tab_login: "Accedi",
+                auth_tab_register: "Crea account",
+                auth_lbl_email: "Indirizzo Email",
+                auth_email_hint: "Le email temporanee sono bloccate.",
+                auth_lbl_pwd: "Password",
+                auth_perks_title: "🎁 Sblocca subito:",
+                auth_perks_1: "• 2 documenti gratuiti / giorno (invece di 1)",
+                auth_perks_2: "• Fino a 10 pagine (invece di 5)",
+                auth_perks_3: "• 100% gratis per sempre • Nessuna carta",
+                auth_btn_login_submit: "Accedi",
+                auth_btn_register_submit: "Crea account gratis",
+
+                tagline: "100% Vettoriale",
+                plan_label: "Piano:",
+                plan_anon: "👤 Modalità Anonima (1 doc/g, max 5p)",
+                plan_free: "📧 Registrato Gratuito (2 doc/g, max 10p)",
+                plan_starter: "⭐ Abbonato Starter ($4.99/m, 150 doc/m, max 20p)",
+                plan_pro: "👑 Abbonato Pro ($14.99/m, Illimitato, max 100p)",
+                nav_pricing: "I nostri prezzi",
+                lang_menu_title: "Lingua dell'interfaccia",
+                hero_title_1: "Traduci i tuoi documenti PDF",
+                hero_title_2: "senza alterare figure o schemi",
+                hero_subtitle: "L'unica tecnologia che preserva grafici, schemi ingegneristici e tabelle con assoluta fedeltà vettoriale. 50% più economico di DeepL.",
+                drop_title: "Trascina qui il tuo documento PDF",
+                drop_sub: "o clicca per sfogliare i file (max 100 pagine)",
+                btn_change: "Cambia",
+                lbl_source_lang: "Lingua di origine",
+                lbl_target_lang: "Lingua di destinazione",
+                chk_figures: "Mantieni intatti il 100% di figure, diagrammi vettoriali e didascalie (Consigliato)",
+                btn_translate: "Avvia traduzione",
+                progress_title: "Traduzione in corso...",
+                progress_sub: "Elaborazione IA ad alta fedeltà...",
+                btn_prev: "← Pagina precedente",
+                btn_next: "Pagina successiva →",
+                btn_another: "Traduci un altro PDF",
+                btn_download: "📥 Scarica PDF Tradotto",
+                view_orig: "Versione Originale",
+                view_trans: "Versione Tradotta (100% vettoriale)",
+                pricing_title: "Tariffe 50% più economiche di DeepL",
+                pricing_subtitle: "30 volte più documenti e zero schemi rotti",
+                per_month: "/ mese",
+                tier_free_name: "Gratuito",
+                tier_free_b1: "✔ <strong>1 doc / giorno</strong> (Anonimo, max 5p)",
+                tier_free_b2: "✔ <strong>2 doc / giorno</strong> (Registrato, max 10p)",
+                tier_free_b3: "✔ Preservazione figure e formule",
+                tier_free_b4: "✖ Filigrana discreta in calce",
+                tier_free_btn: "Offerta attiva",
+                tier_starter_badge: "Popolare • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 documenti / mese</strong>",
+                tier_starter_b2: "✔ <strong>Fino a 20 pagine</strong> per documento",
+                tier_starter_b3: "✔ <strong>Accelerazione IA</strong> ad alta velocità",
+                tier_starter_b4: "✔ <strong>Zero filigrana</strong>",
+                tier_starter_btn: "Scegli Starter",
+                tier_pro_name: "Professionale",
+                tier_pro_b1: "✔ <strong>Traduzioni Illimitate</strong> (max 10 doc/giorno)",
+                tier_pro_b2: "✔ <strong>Fino a 50 pagine incluse</strong>",
+                tier_pro_b3: "✔ Doc 51 a 100 pagine (+0,99 $)",
+                tier_pro_b4: "✔ Massima priorità IA",
+                tier_pro_btn: "Scegli Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Tecnologia IA avanzata / File cancellati entro 24h (GDPR)"
+            },
+            pt: {
+                nav_auth_btn: "Entrar / Cadastrar",
+                auth_logout: "Sair",
+                auth_tab_login: "Entrar",
+                auth_tab_register: "Criar conta",
+                auth_lbl_email: "Endereço de Email",
+                auth_email_hint: "Emails temporários são bloqueados.",
+                auth_lbl_pwd: "Senha",
+                auth_perks_title: "🎁 Desbloqueie já:",
+                auth_perks_1: "• 2 documentos grátis / dia (em vez de 1)",
+                auth_perks_2: "• Até 10 páginas (em vez de 5)",
+                auth_perks_3: "• 100% grátis para sempre • Sem cartão",
+                auth_btn_login_submit: "Entrar",
+                auth_btn_register_submit: "Criar conta grátis",
+
+                tagline: "100% Vetorial",
+                plan_label: "Plano:",
+                plan_anon: "👤 Modo Anônimo (1 doc/d, máx 5p)",
+                plan_free: "📧 Cadastro Grátis (2 docs/d, máx 10p)",
+                plan_starter: "⭐ Assinante Starter ($4.99/m, 150 docs/m, máx 20p)",
+                plan_pro: "👑 Assinante Pro ($14.99/m, Ilimitado, máx 100p)",
+                nav_pricing: "Nossos Preços",
+                lang_menu_title: "Idioma da interface",
+                hero_title_1: "Traduza seus documentos PDF",
+                hero_title_2: "sem alterar figuras ou diagramas",
+                hero_subtitle: "A única tecnologia que preserva seus gráficos, plantas de engenharia e tabelas com fidelidade vetorial absoluta. 50% mais barato que o DeepL.",
+                drop_title: "Arraste e solte seu documento PDF aqui",
+                drop_sub: "ou clique para procurar arquivos (máx 100 páginas)",
+                btn_change: "Alterar",
+                lbl_source_lang: "Idioma de origem",
+                lbl_target_lang: "Idioma de destino",
+                chk_figures: "Manter 100% das figuras, diagramas vetoriais e legendas sem alterações (Recomendado)",
+                btn_translate: "Iniciar tradução",
+                progress_title: "Tradução em andamento...",
+                progress_sub: "Processamento por IA de alta fidelidade...",
+                btn_prev: "← Página anterior",
+                btn_next: "Próxima página →",
+                btn_another: "Traduzir outro PDF",
+                btn_download: "📥 Baixar PDF Traduzido",
+                view_orig: "Versão Original",
+                view_trans: "Versão Traduzida (100% vetorial)",
+                pricing_title: "Preços 50% mais baratos que o DeepL",
+                pricing_subtitle: "30x mais documentos e zero esquemas danificados",
+                per_month: "/ mês",
+                tier_free_name: "Gratuito",
+                tier_free_b1: "✔ <strong>1 doc / dia</strong> (Anônimo, máx 5p)",
+                tier_free_b2: "✔ <strong>2 docs / dia</strong> (Cadastrado, máx 10p)",
+                tier_free_b3: "✔ Preservação de figuras e fórmulas",
+                tier_free_b4: "✖ Marca d'água discreta no rodapé",
+                tier_free_btn: "Oferta ativa",
+                tier_starter_badge: "Popular • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 documentos / mês</strong>",
+                tier_starter_b2: "✔ <strong>Até 20 páginas</strong> por documento",
+                tier_starter_b3: "✔ <strong>Aceleração por IA</strong> de alta velocidade",
+                tier_starter_b4: "✔ <strong>Zero marca d'água</strong>",
+                tier_starter_btn: "Escolher Starter",
+                tier_pro_name: "Profissional",
+                tier_pro_b1: "✔ <strong>Traduções Ilimitadas</strong> (máx 10 docs/dia)",
+                tier_pro_b2: "✔ <strong>Até 50 páginas inclusas</strong>",
+                tier_pro_b3: "✔ Docs 51 a 100 páginas (+0,99 $)",
+                tier_pro_b4: "✔ Prioridade máxima de IA",
+                tier_pro_btn: "Escolher Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Tecnologia de IA avançada / Arquivos excluídos em 24h (GDPR)"
+            },
+            ru: {
+                nav_auth_btn: "Вход / Регистрация",
+                auth_logout: "Выйти",
+                auth_tab_login: "Войти",
+                auth_tab_register: "Создать аккаунт",
+                auth_lbl_email: "Электронная почта",
+                auth_email_hint: "Временные почтовые адреса заблокированы.",
+                auth_lbl_pwd: "Пароль",
+                auth_perks_title: "🎁 Доступно сразу:",
+                auth_perks_1: "• 2 бесплатных документа в день (вместо 1)",
+                auth_perks_2: "• До 10 страниц (вместо 5)",
+                auth_perks_3: "• 100% бесплатно навсегда • Без карты",
+                auth_btn_login_submit: "Войти",
+                auth_btn_register_submit: "Создать бесплатный аккаунт",
+
+                tagline: "100% Векторная точность",
+                plan_label: "Тариф:",
+                plan_anon: "👤 Анонимный режим (1 док/д, макс 5с)",
+                plan_free: "📧 Бесплатный аккаунт (2 док/д, макс 10с)",
+                plan_starter: "⭐ Подписчик Starter ($4.99/м, 150 док/м, макс 20с)",
+                plan_pro: "👑 Подписчик Pro ($14.99/м, Безлимит, макс 100с)",
+                nav_pricing: "Тарифы",
+                lang_menu_title: "Язык интерфейса",
+                hero_title_1: "Переводите ваши PDF-документы",
+                hero_title_2: "без искажения рисунков и схем",
+                hero_subtitle: "Единственная технология, сохраняющая графики, инженерные схемы и таблицы в абсолютном векторном качестве. На 50% дешевле DeepL.",
+                drop_title: "Перетащите PDF-документ сюда",
+                drop_sub: "или нажмите для выбора файла (макс 100 страниц)",
+                btn_change: "Изменить",
+                lbl_source_lang: "Исходный язык",
+                lbl_target_lang: "Язык перевода",
+                chk_figures: "Сохранять 100% рисунков, векторных схем и подписей без изменений (Рекомендуется)",
+                btn_translate: "Начать перевод",
+                progress_title: "Выполняется перевод...",
+                progress_sub: "Обработка высокоточным ИИ...",
+                btn_prev: "← Предыдущая страница",
+                btn_next: "Следующая страница →",
+                btn_another: "Перевести другой PDF",
+                btn_download: "📥 Скачать переведенный PDF",
+                view_orig: "Оригинальная версия",
+                view_trans: "Переведенная версия (100% вектор)",
+                pricing_title: "Цены на 50% выгоднее DeepL",
+                pricing_subtitle: "В 30 раз больше документов и ноль сломанных схем",
+                per_month: "/ месяц",
+                tier_free_name: "Бесплатный",
+                tier_free_b1: "✔ <strong>1 док / день</strong> (Анонимно, макс 5с)",
+                tier_free_b2: "✔ <strong>2 док / день</strong> (Регистрация, макс 10с)",
+                tier_free_b3: "✔ Сохранение графики и формул",
+                tier_free_b4: "✖ Небольшой водяной знак внизу",
+                tier_free_btn: "Текущий план",
+                tier_starter_badge: "Популярный • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 документов / месяц</strong>",
+                tier_starter_b2: "✔ <strong>До 20 страниц</strong> на документ",
+                tier_starter_b3: "✔ <strong>Высокоскоростное ИИ</strong>-ускорение",
+                tier_starter_b4: "✔ <strong>Без водяных знаков</strong>",
+                tier_starter_btn: "Выбрать Starter",
+                tier_pro_name: "Профессиональный",
+                tier_pro_b1: "✔ <strong>Безлимитный перевод</strong> (макс 10 док/день)",
+                tier_pro_b2: "✔ <strong>До 50 страниц включено</strong>",
+                tier_pro_b3: "✔ Документы 51–100 страниц (+0,99 $)",
+                tier_pro_b4: "✔ Максимальный приоритет ИИ",
+                tier_pro_btn: "Выбрать Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Передовые технологии ИИ / Удаление файлов через 24ч (GDPR)"
+            },
+            zh: {
+                nav_auth_btn: "登录 / 注册",
+                auth_logout: "退出登录",
+                auth_tab_login: "登录",
+                auth_tab_register: "创建账户",
+                auth_lbl_email: "电子邮箱",
+                auth_email_hint: "严禁使用临时一次性邮箱。",
+                auth_lbl_pwd: "密码",
+                auth_perks_title: "🎁 立即解锁权益：",
+                auth_perks_1: "• 每天2份免费文档（原为1份）",
+                auth_perks_2: "• 每份最高10页（原为5页）",
+                auth_perks_3: "• 永久免费 • 无需信用卡",
+                auth_btn_login_submit: "登录",
+                auth_btn_register_submit: "免费创建账户",
+
+                tagline: "100% 矢量保真",
+                plan_label: "方案:",
+                plan_anon: "👤 匿名访客 (1篇/天, 最多5页)",
+                plan_free: "📧 免费注册 (2篇/天, 最多10页)",
+                plan_starter: "⭐ Starter 会员 ($4.99/月, 150篇/月, 最多20页)",
+                plan_pro: "👑 Pro 会员 ($14.99/月, 无限畅享, 最多100页)",
+                nav_pricing: "价格方案",
+                lang_menu_title: "界面语言",
+                hero_title_1: "精准翻译您的 PDF 文档",
+                hero_title_2: "完整保留所有图表与架构图",
+                hero_subtitle: "唯一能够在保持绝对矢量精度的同时完整保留图表、工程图纸和表格的先进技术。价格比 DeepL 便捷 50%。",
+                drop_title: "拖放您的 PDF 文档到此处",
+                drop_sub: "或点击浏览文件 (最多 100 页)",
+                btn_change: "更换",
+                lbl_source_lang: "源语言",
+                lbl_target_lang: "目标语言",
+                chk_figures: "完整保留 100% 图表、矢量图与图例无损呈现 (推荐)",
+                btn_translate: "开始翻译",
+                progress_title: "正在翻译中...",
+                progress_sub: "高保真 AI 算力处理中...",
+                btn_prev: "← 上一页",
+                btn_next: "下一页 →",
+                btn_another: "翻译另一个 PDF",
+                btn_download: "📥 下载翻译好的 PDF",
+                view_orig: "原文版本",
+                view_trans: "译文版本 (100% 矢量)",
+                pricing_title: "价格比 DeepL 优惠 50%",
+                pricing_subtitle: "支持 30 倍文档量，零图表变形",
+                per_month: "/ 月",
+                tier_free_name: "免费版",
+                tier_free_b1: "✔ <strong>1 篇 / 天</strong> (匿名访客, 最多5页)",
+                tier_free_b2: "✔ <strong>2 篇 / 天</strong> (注册用户, 最多10页)",
+                tier_free_b3: "✔ 保留图表和公式",
+                tier_free_b4: "✖ 底部带有轻量水印",
+                tier_free_btn: "当前方案",
+                tier_starter_badge: "最受欢迎 • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 篇文档 / 月</strong>",
+                tier_starter_b2: "✔ 每篇 <strong>最多 20 页</strong>",
+                tier_starter_b3: "✔ <strong>高速 AI</strong> 算力加速",
+                tier_starter_b4: "✔ <strong>无任何水印</strong>",
+                tier_starter_btn: "选择 Starter",
+                tier_pro_name: "专业版",
+                tier_pro_b1: "✔ <strong>无限量翻译</strong> (最高10篇/天)",
+                tier_pro_b2: "✔ <strong>包含最多 50 页</strong>",
+                tier_pro_b3: "✔ 51 至 100 页超长文档 (+0.99 $)",
+                tier_pro_b4: "✔ 顶级优先 AI 队列",
+                tier_pro_btn: "选择专业版",
+                footer_text: "© 2026 translate-for-pdf.com • 先进人工智能技术 / 24小时后自动销毁文件 (GDPR)"
+            },
+            ja: {
+                nav_auth_btn: "ログイン / 新規登録",
+                auth_logout: "ログアウト",
+                auth_tab_login: "ログイン",
+                auth_tab_register: "アカウント登録",
+                auth_lbl_email: "メールアドレス",
+                auth_email_hint: "使い捨てメールは拒否されます。",
+                auth_lbl_pwd: "パスワード",
+                auth_perks_title: "🎁 すぐに利用可能：",
+                auth_perks_1: "• 1日2件まで無料（通常1件）",
+                auth_perks_2: "• 最大10ページ対応（通常5ページ）",
+                auth_perks_3: "• 完全無料 • クレジットカード不要",
+                auth_btn_login_submit: "ログイン",
+                auth_btn_register_submit: "無料アカウント作成",
+
+                tagline: "100% ベクター保持",
+                plan_label: "プラン:",
+                plan_anon: "👤 匿名モード (1件/日, 最大5p)",
+                plan_free: "📧 無料会員 (2件/日, 最大10p)",
+                plan_starter: "⭐ Starter ($4.99/月, 150件/月, 最大20p)",
+                plan_pro: "👑 Pro ($14.99/月, 無制限, 最大100p)",
+                nav_pricing: "料金プラン",
+                lang_menu_title: "表示言語",
+                hero_title_1: "PDFドキュメントを高精度翻訳",
+                hero_title_2: "図表やダイアグラムを崩さずに保持",
+                hero_subtitle: "グラフや設計図、表をベクター品質で忠実に保持する唯一の技術。DeepL より50%お得。",
+                drop_title: "ここにPDFドキュメントをドラッグ＆ドロップ",
+                drop_sub: "またはクリックしてファイルを選択 (最大100ページ)",
+                btn_change: "変更",
+                lbl_source_lang: "元の言語",
+                lbl_target_lang: "翻訳先の言語",
+                chk_figures: "図表、ベクター図、キャプションを100%完全に保持 (推奨)",
+                btn_translate: "翻訳を開始",
+                progress_title: "翻訳処理中...",
+                progress_sub: "高精度AIが処理しています...",
+                btn_prev: "← 前のページ",
+                btn_next: "次のページ →",
+                btn_another: "別のPDFを翻訳",
+                btn_download: "📥 翻訳済みPDFをダウンロード",
+                view_orig: "オリジナル版",
+                view_trans: "翻訳版 (100%ベクター保持)",
+                pricing_title: "DeepLより50%お得な料金設定",
+                pricing_subtitle: "30倍のドキュメント処理量 & 図表の崩れゼロ",
+                per_month: "/ 月",
+                tier_free_name: "無料プラン",
+                tier_free_b1: "✔ <strong>1 件 / 日</strong> (匿名, 最大5p)",
+                tier_free_b2: "✔ <strong>2 件 / 日</strong> (登録済, 最大10p)",
+                tier_free_b3: "✔ 図表と数式の保持",
+                tier_free_b4: "✖ ページ下部に控えめな透かし",
+                tier_free_btn: "現在のプラン",
+                tier_starter_badge: "人気 • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 件 / 月</strong>",
+                tier_starter_b2: "✔ 1ファイルあたり<strong>最大20ページ</strong>",
+                tier_starter_b3: "✔ <strong>高速AI</strong>アクセラレーション",
+                tier_starter_b4: "✔ <strong>透かしなし</strong>",
+                tier_starter_btn: "Starter を選択",
+                tier_pro_name: "プロフェッショナル",
+                tier_pro_b1: "✔ <strong>無制限翻訳</strong> (最大10件/日)",
+                tier_pro_b2: "✔ <strong>最大50ページまで込み</strong>",
+                tier_pro_b3: "✔ 51〜100ページの文書 (+0.99 $)",
+                tier_pro_b4: "✔ 最優先AIキュー",
+                tier_pro_btn: "Pro を選択",
+                footer_text: "© 2026 translate-for-pdf.com • 先進AI技術 / 24時間以内にファイル消去 (GDPR)"
+            },
+            ar: {
+                nav_auth_btn: "تسجيل الدخول / إنشاء حساب",
+                auth_logout: "تسجيل الخروج",
+                auth_tab_login: "تسجيل الدخول",
+                auth_tab_register: "إنشاء حساب مجاني",
+                auth_lbl_email: "البريد الإلكتروني",
+                auth_email_hint: "حماية ضد الاحتيال: يُحظر استخدام البريد المؤقت.",
+                auth_lbl_pwd: "كلمة المرور",
+                auth_perks_title: "🎁 احصل فوراً على:",
+                auth_perks_1: "• وثيقتان مجانيتان يومياً (بدلاً من 1)",
+                auth_perks_2: "• حتى 10 صفحات (بدلاً من 5)",
+                auth_perks_3: "• مجاني 100% مدى الحياة • دون بطاقة ائتمان",
+                auth_btn_login_submit: "تسجيل الدخول",
+                auth_btn_register_submit: "إنشاء حسابي المجاني",
+
+                tagline: "100% حفظ متجهي",
+                plan_label: "الخطة:",
+                plan_anon: "👤 وضع مجهول (1 مستند/يوم, حتى 5 ص)",
+                plan_free: "📧 حساب مجاني (2 مستند/يوم, حتى 10 ص)",
+                plan_starter: "⭐ باقة Starter ($4.99/شهر, 150 مستند/شهر, حتى 20 ص)",
+                plan_pro: "👑 باقة Pro ($14.99/شهر, غير محدود, حتى 100 ص)",
+                nav_pricing: "الأسعار",
+                lang_menu_title: "لغة الواجهة",
+                hero_title_1: "ترجم مستندات PDF الخاصة بك",
+                hero_title_2: "دون المساس بالأشكال والرسوم البيانية",
+                hero_subtitle: "التقنية الوحيدة التي تحافظ على رسوماتك ومخططاتك الهندسية وجداولك بدقة متجهية مطلقة. أرخص بنسبة 50% من DeepL.",
+                drop_title: "اسحب وأفلت مستند PDF هنا",
+                drop_sub: "أو انقر لتصفح ملفاتك (بحد أقصى 100 صفحة)",
+                btn_change: "تغيير",
+                lbl_source_lang: "لغة المصدر",
+                lbl_target_lang: "لغة الهدف",
+                chk_figures: "الحفاظ على 100% من الأشكال والمخططات والتعليقات دون تغيير (موصى به)",
+                btn_translate: "بدء الترجمة",
+                progress_title: "الترجمة جارية...",
+                progress_sub: "معالجة بالذكاء الاصطناعي عالي الدقة...",
+                btn_prev: "← الصفحة السابقة",
+                btn_next: "الصفحة التالية →",
+                btn_another: "ترجمة ملف PDF آخر",
+                btn_download: "📥 تحميل ملف PDF المترجم",
+                view_orig: "النسخة الأصلية",
+                view_trans: "النسخة المترجمة (100% متجهية)",
+                pricing_title: "أسعار أقل بنسبة 50% من DeepL",
+                pricing_subtitle: "30 ضعف المستندات وبدون أي تلف في الرسوم",
+                per_month: "/ شهر",
+                tier_free_name: "مجاني",
+                tier_free_b1: "✔ <strong>مستند 1 / يوم</strong> (مجهول, حتى 5 ص)",
+                tier_free_b2: "✔ <strong>2 مستند / يوم</strong> (مسجل, حتى 10 ص)",
+                tier_free_b3: "✔ الحفاظ على الأشكال والمعادلات",
+                tier_free_b4: "✖ علامة مائية هادئة أسفل الصفحة",
+                tier_free_btn: "الخطة الحالية",
+                tier_starter_badge: "الأكثر طلباً • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 مستند / شهر</strong>",
+                tier_starter_b2: "✔ <strong>حتى 20 صفحة</strong> لكل مستند",
+                tier_starter_b3: "✔ <strong>تسريع ذكاء اصطناعي</strong> عالي السرعة",
+                tier_starter_b4: "✔ <strong>بدون علامة مائية</strong>",
+                tier_starter_btn: "اختيار Starter",
+                tier_pro_name: "احترافي",
+                tier_pro_b1: "✔ <strong>ترجمات غير محدودة</strong> (حتى 10 مستندات/يوم)",
+                tier_pro_b2: "✔ <strong>حتى 50 صفحة مشمولة</strong>",
+                tier_pro_b3: "✔ المستندات 51 إلى 100 صفحة (+0.99 $)",
+                tier_pro_b4: "✔ أولوية قصوى للذكاء الاصطناعي",
+                tier_pro_btn: "اختيار Pro",
+                footer_text: "© 2026 translate-for-pdf.com • تقنية ذكاء اصطناعي متطورة / حذف الملفات خلال 24 ساعة (GDPR)"
+            },
+            nl: {
+                nav_auth_btn: "Inloggen / Registreren",
+                auth_logout: "Uitloggen",
+                auth_tab_login: "Inloggen",
+                auth_tab_register: "Account maken",
+                auth_lbl_email: "E-mailadres",
+                auth_email_hint: "Tijdelijke e-mails worden geblokkeerd.",
+                auth_lbl_pwd: "Wachtwoord",
+                auth_perks_title: "🎁 Direct ontgrendelen:",
+                auth_perks_1: "• 2 gratis documenten / dag (ipv 1)",
+                auth_perks_2: "• Tot 10 pagina's (ipv 5)",
+                auth_perks_3: "• 100% gratis • Geen creditcard nodig",
+                auth_btn_login_submit: "Inloggen",
+                auth_btn_register_submit: "Gratis account maken",
+
+                tagline: "100% Vectorieel",
+                plan_label: "Abonnement:",
+                plan_anon: "👤 Anoniem (1 doc/d, max 5p)",
+                plan_free: "📧 Gratis account (2 docs/d, max 10p)",
+                plan_starter: "⭐ Starter ($4.99/mnd, 150 docs/mnd, max 20p)",
+                plan_pro: "👑 Pro ($14.99/mnd, Onbeperkt, max 100p)",
+                nav_pricing: "Tarieven",
+                lang_menu_title: "Taal van de interface",
+                hero_title_1: "Vertaal uw PDF-documenten",
+                hero_title_2: "zonder figuren of diagrammen te wijzigen",
+                hero_subtitle: "De enige technologie die grafieken, technische schema's en tabellen met absolute vectorgetrouwheid behoudt. 50% goedkoper dan DeepL.",
+                drop_title: "Sleep uw PDF-document hierheen",
+                drop_sub: "of klik om bestanden te kiezen (max 100 pagina's)",
+                btn_change: "Wijzigen",
+                lbl_source_lang: "Brontaal",
+                lbl_target_lang: "Doeltaal",
+                chk_figures: "Behoud 100% van figuren, vectorontwerpen en bijschriften onaangetast (Aanbevolen)",
+                btn_translate: "Start vertaling",
+                progress_title: "Vertaling bezig...",
+                progress_sub: "Hoogwaardige AI-verwerking...",
+                btn_prev: "← Vorige pagina",
+                btn_next: "Volgende pagina →",
+                btn_another: "Vertaal een andere PDF",
+                btn_download: "📥 Download vertaalde PDF",
+                view_orig: "Originele versie",
+                view_trans: "Vertaalde versie (100% vectorieel)",
+                pricing_title: "Tarieven 50% goedkoper dan DeepL",
+                pricing_subtitle: "30x meer documenten en nul kapotte schema's",
+                per_month: "/ maand",
+                tier_free_name: "Gratis",
+                tier_free_b1: "✔ <strong>1 doc / dag</strong> (Anoniem, max 5p)",
+                tier_free_b2: "✔ <strong>2 docs / dag</strong> (Geregistreerd, max 10p)",
+                tier_free_b3: "✔ Behoud van figuren & formules",
+                tier_free_b4: "✖ Subtiel watermerk onderaan",
+                tier_free_btn: "Actief abonnement",
+                tier_starter_badge: "Populair • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 documenten / maand</strong>",
+                tier_starter_b2: "✔ <strong>Tot 20 pagina's</strong> per document",
+                tier_starter_b3: "✔ <strong>Snelle AI</strong>-versnelling",
+                tier_starter_b4: "✔ <strong>Geen watermerk</strong>",
+                tier_starter_btn: "Kies Starter",
+                tier_pro_name: "Professioneel",
+                tier_pro_b1: "✔ <strong>Onbeperkte vertalingen</strong> (max 10 docs/dag)",
+                tier_pro_b2: "✔ <strong>Tot 50 pagina's inbegrepen</strong>",
+                tier_pro_b3: "✔ Docs 51 tot 100 pagina's (+0,99 $)",
+                tier_pro_b4: "✔ Maximale AI-prioriteit",
+                tier_pro_btn: "Kies Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Geavanceerde AI-technologie / Bestanden na 24u verwijderd (AVG)"
+            },
+            pl: {
+                nav_auth_btn: "Zaloguj się / Zarejestruj",
+                auth_logout: "Wyloguj",
+                auth_tab_login: "Zaloguj się",
+                auth_tab_register: "Utwórz konto",
+                auth_lbl_email: "Adres e-mail",
+                auth_email_hint: "Tymczasowe adresy e-mail są blokowane.",
+                auth_lbl_pwd: "Hasło",
+                auth_perks_title: "🎁 Odblokuj natychmiast:",
+                auth_perks_1: "• 2 darmowe dokumenty dziennie (zamiast 1)",
+                auth_perks_2: "• Do 10 stron (zamiast 5)",
+                auth_perks_3: "• 100% darmowe na zawsze • Bez karty",
+                auth_btn_login_submit: "Zaloguj się",
+                auth_btn_register_submit: "Utwórz bezpłatne konto",
+
+                tagline: "100% Wektorowy",
+                plan_label: "Plan:",
+                plan_anon: "👤 Tryb Anonimowy (1 dok/d, max 5 str)",
+                plan_free: "📧 Darmowe konto (2 dok/d, max 10 str)",
+                plan_starter: "⭐ Starter ($4.99/m, 150 dok/m, max 20 str)",
+                plan_pro: "👑 Pro ($14.99/m, Bez limitu, max 100 str)",
+                nav_pricing: "Cennik",
+                lang_menu_title: "Język interfejsu",
+                hero_title_1: "Przetłumacz swoje dokumenty PDF",
+                hero_title_2: "bez zniekształcania rysunków i wykresów",
+                hero_subtitle: "Jedyna technologia zachowująca wykresy, rysunki inżynieryjne i tabele z absolutną dokładnością wektorową. 50% taniej niż DeepL.",
+                drop_title: "Przeciągnij i upuść dokument PDF tutaj",
+                drop_sub: "lub kliknij, aby wybrać pliki (maks 100 stron)",
+                btn_change: "Zmień",
+                lbl_source_lang: "Język źródłowy",
+                lbl_target_lang: "Język docelowy",
+                chk_figures: "Zachowaj 100% rysunków, diagramów wektorowych i podpisów bez zmian (Zalecane)",
+                btn_translate: "Rozpocznij tłumaczenie",
+                progress_title: "Tłumaczenie w toku...",
+                progress_sub: "Przetwarzanie przez precyzyjną sztuczną inteligencję...",
+                btn_prev: "← Poprzednia strona",
+                btn_next: "Następna strona →",
+                btn_another: "Przetłumacz inny PDF",
+                btn_download: "📥 Pobierz przetłumaczony PDF",
+                view_orig: "Wersja oryginalna",
+                view_trans: "Wersja przetłumaczona (100% wektorowa)",
+                pricing_title: "Ceny 50% niższe niż w DeepL",
+                pricing_subtitle: "30x więcej dokumentów i zero uszkodzonych schematów",
+                per_month: "/ miesiąc",
+                tier_free_name: "Darmowy",
+                tier_free_b1: "✔ <strong>1 dok / dzień</strong> (Anonim, max 5 str)",
+                tier_free_b2: "✔ <strong>2 dok / dzień</strong> (Zarejestrowany, max 10 str)",
+                tier_free_b3: "✔ Zachowanie rysunków i wzorów",
+                tier_free_b4: "✖ Dyskretny znak wodny na dole",
+                tier_free_btn: "Aktywny plan",
+                tier_starter_badge: "Popularny • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>150 dokumentów / miesiąc</strong>",
+                tier_starter_b2: "✔ <strong>Do 20 stron</strong> na dokument",
+                tier_starter_b3: "✔ <strong>Szybka akceleracja AI</strong>",
+                tier_starter_b4: "✔ <strong>Brak znaku wodnego</strong>",
+                tier_starter_btn: "Wybierz Starter",
+                tier_pro_name: "Profesjonalny",
+                tier_pro_b1: "✔ <strong>Tłumaczenia bez limitu</strong> (max 10 dok/dzień)",
+                tier_pro_b2: "✔ <strong>Do 50 stron w cenie</strong>",
+                tier_pro_b3: "✔ Dok 51 do 100 stron (+0,99 $)",
+                tier_pro_b4: "✔ Najwyższy priorytet AI",
+                tier_pro_btn: "Wybierz Pro",
+                footer_text: "© 2026 translate-for-pdf.com • Zaawansowana technologia AI / Pliki usuwane po 24h (RODO)"
+            },
+            tr: {
+                nav_auth_btn: "Giriş Yap / Kaydol",
+                auth_logout: "Çıkış Yap",
+                auth_tab_login: "Giriş Yap",
+                auth_tab_register: "Hesap Oluştur",
+                auth_lbl_email: "E-posta Adresi",
+                auth_email_hint: "Geçici tek kullanımlık e-postalar yasaktır.",
+                auth_lbl_pwd: "Şifre",
+                auth_perks_title: "🎁 Hemen kilidi açın:",
+                auth_perks_1: "• Günde 2 ücretsiz belge (1 yerine)",
+                auth_perks_2: "• 10 sayfaya kadar (5 yerine)",
+                auth_perks_3: "• Ömür boyu %100 ücretsiz • Kredi kartsız",
+                auth_btn_login_submit: "Giriş Yap",
+                auth_btn_register_submit: "Ücretsiz Hesap Oluştur",
+
+                tagline: "%100 Vektörel",
+                plan_label: "Plan:",
+                plan_anon: "👤 Anonim Mod (1 dok/gün, maks 5s)",
+                plan_free: "📧 Ücretsiz Üye (2 dok/gün, maks 10s)",
+                plan_starter: "⭐ Starter ($4.99/ay, 150 dok/ay, maks 20s)",
+                plan_pro: "👑 Pro ($14.99/ay, Sınırsız, maks 100s)",
+                nav_pricing: "Fiyatlandırma",
+                lang_menu_title: "Arayüz Dili",
+                hero_title_1: "PDF belgelerinizi çevirin",
+                hero_title_2: "şekil ve şemaları bozmadan",
+                hero_subtitle: "Grafikleri, mühendislik çizimlerini ve tabloları kusursuz vektör kalitesinde koruyan tek teknoloji. DeepL'den %50 daha hesaplı.",
+                drop_title: "PDF belgenizi buraya sürükleyip bırakın",
+                drop_sub: "veya dosyalara göz atmak için tıklayın (maks 100 sayfa)",
+                btn_change: "Değiştir",
+                lbl_source_lang: "Kaynak dil",
+                lbl_target_lang: "Hedef dil",
+                chk_figures: "Şekilleri, vektör şemalarını ve açıklamaları %100 orijinal haliyle koruyun (Önerilen)",
+                btn_translate: "Çeviriyi Başlat",
+                progress_title: "Çeviri yapılıyor...",
+                progress_sub: "Yüksek hassasiyetli yapay zeka işliyor...",
+                btn_prev: "← Önceki sayfa",
+                btn_next: "Sonraki sayfa →",
+                btn_another: "Başka bir PDF çevir",
+                btn_download: "📥 Çevrilmiş PDF'i İndir",
+                view_orig: "Orijinal Sürüm",
+                view_trans: "Çevrilmiş Sürüm (%100 vektörel)",
+                pricing_title: "DeepL'den %50 Daha Uygun Fiyatlar",
+                pricing_subtitle: "30 kat daha fazla belge ve sıfır bozuk şema",
+                per_month: "/ ay",
+                tier_free_name: "Ücretsiz",
+                tier_free_b1: "✔ <strong>Günde 1 belge</strong> (Anonim, maks 5s)",
+                tier_free_b2: "✔ <strong>Günde 2 belge</strong> (Kayıtlı, maks 10s)",
+                tier_free_b3: "✔ Şekil ve formüllerin korunması",
+                tier_free_b4: "✖ Sayfa altında hafif filigran",
+                tier_free_btn: "Aktif Plan",
+                tier_starter_badge: "Popüler • 30x DeepL",
+                tier_starter_name: "Starter",
+                tier_starter_b1: "✔ <strong>Ayda 150 belge</strong>",
+                tier_starter_b2: "✔ Belge başına <strong>20 sayfaya kadar</strong>",
+                tier_starter_b3: "✔ <strong>Yüksek hızlı Yapay Zeka</strong>",
+                tier_starter_b4: "✔ <strong>Sıfır filigran</strong>",
+                tier_starter_btn: "Starter Seç",
+                tier_pro_name: "Profesyonel",
+                tier_pro_b1: "✔ <strong>Sınırsız Çeviri</strong> (günde maks 10 belge)",
+                tier_pro_b2: "✔ <strong>50 sayfaya kadar dahil</strong>",
+                tier_pro_b3: "✔ 51 - 100 sayfa arası belgeler (+0.99 $)",
+                tier_pro_b4: "✔ En yüksek Yapay Zeka önceliği",
+                tier_pro_btn: "Pro Seç",
+                footer_text: "© 2026 translate-for-pdf.com • İleri Yapay Zeka Teknolojisi / Dosyalar 24 saatte silinir (KVKK/GDPR)"
+            },
+            hi: {
+                nav_auth_btn: "साइन इन / रजिस्टर करें",
+                auth_logout: "साइन आउट",
+                auth_tab_login: "साइन इन",
+                auth_tab_register: "खाता बनाएं",
+                auth_lbl_email: "ईमेल पता",
+                auth_email_hint: "अस्थायी डिस्पोजेबल ईमेल अवरुद्ध हैं।",
+                auth_lbl_pwd: "पासवर्ड",
+                auth_perks_title: "🎁 तुरंत अनलॉक करें:",
+                auth_perks_1: "• प्रति दिन 2 निःशुल्क दस्तावेज़ (1 के बजाय)",
+                auth_perks_2: "• 10 पृष्ठों तक (5 के बजाय)",
+                auth_perks_3: "• 100% हमेशा के लिए मुफ़्त • कोई कार्ड आवश्यक नहीं",
+                auth_btn_login_submit: "साइन इन करें",
+                auth_btn_register_submit: "मुफ़्त खाता बनाएं",
+
+                tagline: "100% वेक्टर सुरक्षित",
+                plan_label: "योजना:",
+                plan_anon: "👤 अनाम मोड (1 दस्तावेज़/दिन, अधिकतम 5 पृष्ठ)",
+                plan_free: "📧 निःशुल्क खाता (2 दस्तावेज़/दिन, अधिकतम 10 पृष्ठ)",
+                plan_starter: "⭐ स्टार्टर ($4.99/माह, 150 दस्तावेज़/माह, अधिकतम 20 पृष्ठ)",
+                plan_pro: "👑 प्रो ($14.99/माह, असीमित, अधिकतम 100 पृष्ठ)",
+                nav_pricing: "हमारी दरें",
+                lang_menu_title: "इंटरफ़ेस भाषा",
+                hero_title_1: "अपने PDF दस्तावेज़ों का अनुवाद करें",
+                hero_title_2: "आंकड़ों या आरेखों को बदले बिना",
+                hero_subtitle: "एकमात्र तकनीक जो आपके ग्राफ़, इंजीनियरिंग आरेखों और तालिकाओं को पूर्ण वेक्टर निष्ठा के साथ सुरक्षित रखती है। DeepL से 50% सस्ता।",
+                drop_title: "अपना PDF दस्तावेज़ यहाँ खींचें और छोड़ें",
+                drop_sub: "या फ़ाइलें ब्राउज़ करने के लिए क्लिक करें (अधिकतम 100 पृष्ठ)",
+                btn_change: "बदलें",
+                lbl_source_lang: "मूल भाषा",
+                lbl_target_lang: "लक्ष्य भाषा",
+                chk_figures: "100% आंकड़े, वेक्टर आरेख और कैप्शन सुरक्षित रखें (अनुशंसित)",
+                btn_translate: "अनुवाद शुरू करें",
+                progress_title: "अनुवाद प्रगति पर है...",
+                progress_sub: "उच्च-सटीकता एआई प्रसंस्करण...",
+                btn_prev: "← पिछला पृष्ठ",
+                btn_next: "अगला पृष्ठ →",
+                btn_another: "एक और PDF अनुवाद करें",
+                btn_download: "📥 अनुवादित PDF डाउनलोड करें",
+                view_orig: "मूल संस्करण",
+                view_trans: "अनुवादित संस्करण (100% वेक्टर)",
+                pricing_title: "DeepL से 50% सस्ती कीमतें",
+                pricing_subtitle: "30 गुना अधिक दस्तावेज़ और शून्य टूटे हुए आरेख",
+                per_month: "/ माह",
+                tier_free_name: "निःशुल्क",
+                tier_free_b1: "✔ <strong>1 दस्तावेज़ / दिन</strong> (अनाम, अधिकतम 5 पृष्ठ)",
+                tier_free_b2: "✔ <strong>2 दस्तावेज़ / दिन</strong> (पंजीकृत, अधिकतम 10 पृष्ठ)",
+                tier_free_b3: "✔ आंकड़े और सूत्र सुरक्षित",
+                tier_free_b4: "✖ नीचे हल्का वॉटरमार्क",
+                tier_free_btn: "सक्रिय योजना",
+                tier_starter_badge: "लोकप्रिय • 30x DeepL",
+                tier_starter_name: "स्टार्टर",
+                tier_starter_b1: "✔ <strong>150 दस्तावेज़ / माह</strong>",
+                tier_starter_b2: "✔ प्रति दस्तावेज़ <strong>अधिकतम 20 पृष्ठ</strong>",
+                tier_starter_b3: "✔ <strong>उच्च गति एआई</strong>",
+                tier_starter_b4: "✔ <strong>शून्य वॉटरमार्क</strong>",
+                tier_starter_btn: "स्टार्टर चुनें",
+                tier_pro_name: "प्रोफेशनल",
+                tier_pro_b1: "✔ <strong>असीमित अनुवाद</strong> (अधिकतम 10 दस्तावेज़/दिन)",
+                tier_pro_b2: "✔ <strong>50 पृष्ठ तक शामिल</strong>",
+                tier_pro_b3: "✔ 51 से 100 पृष्ठ (+0.99 $)",
+                tier_pro_b4: "✔ अधिकतम एआई प्राथमिकता",
+                tier_pro_btn: "प्रो चुनें",
+                footer_text: "© 2026 translate-for-pdf.com • उन्नत एआई तकनीक / 24 घंटे में फ़ाइलें नष्ट (GDPR)"
+            }
+        };
+
+        let currentUiLang = 'fr';
+        let selectedFile = null;
+        let originalPdfDoc = null;
+        let translatedPdfDoc = null;
+        let currentViewerPage = 1;
+        let totalViewerPages = 1;
+
+        // Elements
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const diagnosticBox = document.getElementById('diagnostic-box');
+        const docName = document.getElementById('doc-name');
+        const docPages = document.getElementById('doc-pages');
+        const tierAlert = document.getElementById('tier-alert');
+        const tierAlertIcon = document.getElementById('tier-alert-icon');
+        const tierAlertText = document.getElementById('tier-alert-text');
+        const btnStartTranslate = document.getElementById('btn-start-translate');
+        const workspaceUpload = document.getElementById('workspace-upload');
+        const workspaceProgress = document.getElementById('workspace-progress');
+        const progressBarFill = document.getElementById('progress-bar-fill');
+        const progressMessage = document.getElementById('progress-message');
+        const progressPercent = document.getElementById('progress-percent');
+        const workspaceViewer = document.getElementById('workspace-viewer');
+        const btnDownloadPdf = document.getElementById('btn-download-pdf');
+        const viewerPageIndicator = document.getElementById('viewer-page-indicator');
+        const btnPrevPage = document.getElementById('btn-prev-page');
+        const btnNextPage = document.getElementById('btn-next-page');
+        const userTierSelect = document.getElementById('user-tier-select');
+
+        // Language Selector Elements
+        const btnLangToggle = document.getElementById('btn-lang-toggle');
+        const langDropdownMenu = document.getElementById('lang-dropdown-menu');
+        const langMenuItems = document.getElementById('lang-menu-items');
+        const currentFlag = document.getElementById('current-flag');
+        const currentLangName = document.getElementById('current-lang-name');
+
+        // Populate Language Menu
+        function initLanguageMenu() {
+            langMenuItems.innerHTML = '';
+            UI_LANGUAGES.forEach(lang => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                const isSelected = (lang.code === currentUiLang);
+                item.className = `w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-lg transition text-left rtl:text-right ${isSelected ? 'bg-purple-50 text-purple-700 font-bold' : 'text-slate-700 hover:bg-slate-50'}`;
+                item.innerHTML = `
+                    <div class="flex items-center space-x-2.5 rtl:space-x-reverse">
+                        <span class="text-lg leading-none">${lang.flag}</span>
+                        <span>${lang.name}</span>
+                    </div>
+                    ${isSelected ? '<span class="text-purple-600 font-bold">✓</span>' : ''}
+                `;
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    setUiLanguage(lang.code);
+                    langDropdownMenu.classList.add('hidden');
+                };
+                langMenuItems.appendChild(item);
+            });
+        }
+
+        // Toggle dropdown
+        btnLangToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            langDropdownMenu.classList.toggle('hidden');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+            if (!langDropdownMenu.classList.contains('hidden')) {
+                langDropdownMenu.classList.add('hidden');
+            }
+        });
+
+        // Apply UI Language
+        function setUiLanguage(langCode) {
+            if (!I18N[langCode]) langCode = 'en';
+            currentUiLang = langCode;
+            localStorage.setItem('user_ui_lang', langCode);
+
+            const meta = UI_LANGUAGES.find(l => l.code === langCode) || UI_LANGUAGES[1];
+            currentFlag.textContent = meta.flag;
+            currentLangName.textContent = meta.nativeName || meta.name;
+
+            // Set text direction (RTL for Arabic, LTR for others)
+            const isRtl = (meta.dir === 'rtl');
+            document.documentElement.setAttribute('dir', isRtl ? 'rtl' : 'ltr');
+            document.documentElement.setAttribute('lang', langCode);
+
+            // Update all elements with data-i18n
+            const dict = I18N[langCode] || I18N.en;
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (dict[key]) {
+                    if (dict[key].includes('<strong') || dict[key].includes('<span')) {
+                        el.innerHTML = dict[key];
+                    } else {
+                        el.textContent = dict[key];
+                    }
+                }
+            });
+
+            // Update plan select options
+            if (dict.plan_anon) document.getElementById('opt-anon').textContent = dict.plan_anon;
+            if (dict.plan_free) document.getElementById('opt-free').textContent = dict.plan_free;
+            if (dict.plan_starter) document.getElementById('opt-starter').textContent = dict.plan_starter;
+            if (dict.plan_pro) document.getElementById('opt-pro').textContent = dict.plan_pro;
+
+            // Update active state in menu
+            initLanguageMenu();
+
+            // Re-evaluate active quote if file selected
+            if (selectedFile) {
+                evaluateFileQuote(selectedFile);
+            }
+        }
+
+        // Drag & drop listeners
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-active'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-active');
+            if (e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+        document.getElementById('btn-change-file').addEventListener('click', () => fileInput.click());
+
+        userTierSelect.addEventListener('change', () => {
+            if (selectedFile) {
+                evaluateFileQuote(selectedFile);
+            }
+        });
+
+        // Handle file selection and request diagnostic quote
+        async function handleFileSelect(file) {
+            if (!file || file.type !== 'application/pdf') {
+                alert('Veuillez sélectionner un fichier PDF valide.');
+                return;
+            }
+            selectedFile = file;
+            docName.textContent = file.name;
+            diagnosticBox.classList.remove('hidden');
+            await evaluateFileQuote(file);
+        }
+
+        async function evaluateFileQuote(file) {
+            docPages.textContent = 'Analyse de conformité en cours...';
+            const formData = new FormData();
+            formData.append('file', file);
+            const currentUserId = userTierSelect.value;
+            if (currentUserId) {
+                formData.append('user_id', currentUserId);
+            }
+
+            const headers = {};
+            const token = localStorage.getItem('pdf_trans_token');
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            try {
+                const res = await fetch('/api/quote', {
+                    method: 'POST',
+                    headers: headers,
+                    body: formData
+                });
+                const quote = await res.json();
+                renderQuoteDiagnosis(quote);
+            } catch (err) {
+                console.error(err);
+                docPages.textContent = 'Erreur lors de l analyse.';
+            }
+        }
+
+        function renderQuoteDiagnosis(quote) {
+            docPages.textContent = `${quote.page_count} page${quote.page_count > 1 ? 's' : ''} détectée${quote.page_count > 1 ? 's' : ''}`;
+
+            tierAlert.className = 'mt-3 p-3.5 rounded-xl text-xs flex items-start space-x-2.5 rtl:space-x-reverse ';
+
+            if (quote.status === 'APPROVED') {
+                tierAlert.classList.add('bg-emerald-50', 'text-emerald-800', 'border', 'border-emerald-200');
+                tierAlertIcon.textContent = '✅';
+                let extraMsg = '';
+                if (quote.extra_fee_usd && quote.extra_fee_usd > 0) {
+                    extraMsg = `<div class="mt-1 text-purple-700 font-bold">💳 Calcul lourd : surcoût automatique de +0.99 $</div>`;
+                }
+                tierAlertText.innerHTML = `<div><strong>Éligible à la traduction :</strong> ${quote.message}${extraMsg}</div>`;
+                btnStartTranslate.disabled = false;
+                btnStartTranslate.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else if (['UPGRADE_REQUIRED', 'QUOTA_EXCEEDED', 'DAILY_FAIR_USE_LIMIT'].includes(quote.status)) {
+                tierAlert.classList.add('bg-amber-50', 'text-amber-900', 'border', 'border-amber-200');
+                tierAlertIcon.textContent = '⚠️';
+
+                let ctaButton = '';
+                if (quote.suggested_tier === 'FREE') {
+                    ctaButton = `<div class="mt-2.5">
+                        <button type="button" onclick="openAuthModal('register')" class="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-sm transition">
+                            🚀 Débloquer gratuitement jusqu'à 10 pages (Créer un compte en 10s)
+                        </button>
+                    </div>`;
+                } else if (quote.suggested_tier === 'STARTER') {
+                    ctaButton = `<div class="mt-2.5">
+                        <button type="button" onclick="document.getElementById('pricing-modal').scrollIntoView({behavior: 'smooth'})" class="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-sm transition">
+                            ⭐ Découvrir l'offre Starter (150 docs/mois, GPU)
+                        </button>
+                    </div>`;
+                } else if (quote.suggested_tier === 'PRO') {
+                    ctaButton = `<div class="mt-2.5">
+                        <button type="button" onclick="document.getElementById('pricing-modal').scrollIntoView({behavior: 'smooth'})" class="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm transition">
+                            👑 Découvrir l'offre Pro Illimitée
+                        </button>
+                    </div>`;
+                }
+
+                tierAlertText.innerHTML = `<div><strong>Limite atteinte :</strong> ${quote.message}${ctaButton}</div>`;
+                btnStartTranslate.disabled = true;
+                btnStartTranslate.classList.add('opacity-50', 'cursor-not-allowed');
+            } else if (quote.status === 'CIRCUIT_BREAKER_TRIPPED') {
+                tierAlert.classList.add('bg-rose-50', 'text-rose-900', 'border', 'border-rose-200');
+                tierAlertIcon.textContent = '🛑';
+                tierAlertText.innerHTML = `<strong>Disjoncteur anti-ruine actif :</strong> ${quote.message}`;
+                btnStartTranslate.disabled = true;
+                btnStartTranslate.classList.add('opacity-50', 'cursor-not-allowed');
+            } else if (quote.status === 'REJECTED_TOO_LARGE') {
+                tierAlert.classList.add('bg-rose-50', 'text-rose-900', 'border', 'border-rose-200');
+                tierAlertIcon.textContent = '⛔';
+                tierAlertText.innerHTML = `<strong>Document trop lourd :</strong> ${quote.message}`;
+                btnStartTranslate.disabled = true;
+                btnStartTranslate.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // Start translation
+        btnStartTranslate.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            const fromLang = document.getElementById('select-source-lang').value;
+            const toLang = document.getElementById('select-target-lang').value;
+
+            workspaceUpload.classList.add('hidden');
+            workspaceProgress.classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('from_lang', fromLang);
+            formData.append('to_lang', toLang);
+            const currentUserId = userTierSelect.value;
+            if (currentUserId) {
+                formData.append('user_id', currentUserId);
+            }
+
+            try {
+                const headers = {};
+                const token = localStorage.getItem('pdf_trans_token');
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const res = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: headers,
+                    body: formData
+                });
+                const data = await res.json();
+                pollTaskStatus(data.task_id, fromLang, toLang);
+            } catch (err) {
+                alert('Erreur lors du lancement de la traduction : ' + err);
+                workspaceUpload.classList.remove('hidden');
+                workspaceProgress.classList.add('hidden');
+            }
+        });
+
+        // Poll translation progress
+        function pollTaskStatus(taskId, fromLang, toLang) {
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/status/${taskId}`);
+                    const task = await res.json();
+
+                    progressBarFill.style.width = `${Math.max(5, task.progress_percent)}%`;
+                    progressPercent.textContent = `${task.progress_percent} %`;
+                    progressMessage.textContent = task.message || 'Traitement en cours...';
+
+                    if (task.status === 'COMPLETED') {
+                        clearInterval(interval);
+                        setTimeout(() => showBilingualViewer(taskId, fromLang, toLang), 500);
+                    } else if (task.status === 'FAILED') {
+                        clearInterval(interval);
+                        alert('Erreur : ' + task.error);
+                        workspaceUpload.classList.remove('hidden');
+                        workspaceProgress.classList.add('hidden');
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            }, 1200);
+        }
+
+        // Show Bilingual Viewer
+        async function showBilingualViewer(taskId, fromLang, toLang) {
+            workspaceProgress.classList.add('hidden');
+            workspaceViewer.classList.remove('hidden');
+
+            document.getElementById('badge-source-lang').textContent = fromLang.toUpperCase();
+            document.getElementById('badge-target-lang').textContent = toLang.toUpperCase();
+            btnDownloadPdf.href = `/api/download/${taskId}`;
+
+            // Load original PDF
+            const origArrayBuffer = await selectedFile.arrayBuffer();
+            originalPdfDoc = await pdfjsLib.getDocument({ data: origArrayBuffer }).promise;
+
+            // Load translated PDF
+            const transRes = await fetch(`/api/download/${taskId}`);
+            const transArrayBuffer = await transRes.arrayBuffer();
+            translatedPdfDoc = await pdfjsLib.getDocument({ data: transArrayBuffer }).promise;
+
+            totalViewerPages = originalPdfDoc.numPages;
+            currentViewerPage = 1;
+            renderSynchronizedPages();
+        }
+
+        // Render page on both canvases simultaneously
+        async function renderSynchronizedPages() {
+            viewerPageIndicator.textContent = `Page ${currentViewerPage} / ${totalViewerPages}`;
+            btnPrevPage.disabled = (currentViewerPage <= 1);
+            btnNextPage.disabled = (currentViewerPage >= totalViewerPages);
+
+            // Render original
+            if (originalPdfDoc) {
+                const pageOrig = await originalPdfDoc.getPage(currentViewerPage);
+                const viewportOrig = pageOrig.getViewport({ scale: 1.3 });
+                const canvasOrig = document.getElementById('canvas-original');
+                canvasOrig.height = viewportOrig.height;
+                canvasOrig.width = viewportOrig.width;
+                await pageOrig.render({ canvasContext: canvasOrig.getContext('2d'), viewport: viewportOrig }).promise;
+            }
+
+            // Render translated
+            if (translatedPdfDoc) {
+                const pageTrans = await translatedPdfDoc.getPage(currentViewerPage);
+                const viewportTrans = pageTrans.getViewport({ scale: 1.3 });
+                const canvasTrans = document.getElementById('canvas-translated');
+                canvasTrans.height = viewportTrans.height;
+                canvasTrans.width = viewportTrans.width;
+                await pageTrans.render({ canvasContext: canvasTrans.getContext('2d'), viewport: viewportTrans }).promise;
+            }
+        }
+
+        btnPrevPage.addEventListener('click', () => {
+            if (currentViewerPage > 1) { currentViewerPage--; renderSynchronizedPages(); }
+        });
+        btnNextPage.addEventListener('click', () => {
+            if (currentViewerPage < totalViewerPages) { currentViewerPage++; renderSynchronizedPages(); }
+        });
+        document.getElementById('btn-translate-another').addEventListener('click', () => {
+            workspaceViewer.classList.add('hidden');
+            workspaceUpload.classList.remove('hidden');
+            diagnosticBox.classList.add('hidden');
+            selectedFile = null;
+        });
+
+        // Load shield status on load
+        fetch('/api/shields/status').then(r => r.json()).then(s => {
+            const pill = document.getElementById('shield-pill');
+            const text = document.getElementById('shield-text');
+            pill.classList.remove('hidden');
+            text.textContent = `Disjoncteur : ${s.quota_remaining}/${s.daily_limit} gratuits restants`;
+        }).catch(() => {});
+
+        // Fetch supported languages dynamically for source/target selectors
+        fetch('/api/languages').then(r => r.json()).then(langs => {
+            if (langs && langs.length > 0) {
+                const srcSelect = document.getElementById('select-source-lang');
+                const tgtSelect = document.getElementById('select-target-lang');
+                srcSelect.innerHTML = '';
+                tgtSelect.innerHTML = '';
+                langs.forEach(l => {
+                    const optSrc = document.createElement('option');
+                    optSrc.value = l.code;
+                    optSrc.textContent = l.name;
+                    if (l.code === 'en') optSrc.selected = true;
+                    srcSelect.appendChild(optSrc);
+
+                    const optTgt = document.createElement('option');
+                    optTgt.value = l.code;
+                    optTgt.textContent = l.name;
+                    if (l.code === 'fr') optTgt.selected = true;
+                    tgtSelect.appendChild(optTgt);
+                });
+            }
+        }).catch(() => {});
+
+        // Initialize UI language on load
+        const savedLang = localStorage.getItem('user_ui_lang') || 'fr';
+        setUiLanguage(savedLang);
+        checkAndUpdateAuth();
+
+        // --- AUTHENTICATION STATE & MODAL LOGIC ---
+        let currentAuthTab = 'login';
+
+        function openAuthModal(tab = 'login') {
+            currentAuthTab = tab;
+            switchAuthTab(tab);
+            const modal = document.getElementById('auth-modal');
+            if (modal) modal.classList.remove('hidden');
+            const alertBox = document.getElementById('auth-alert');
+            if (alertBox) alertBox.classList.add('hidden');
+        }
+
+        function closeAuthModal() {
+            const modal = document.getElementById('auth-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function switchAuthTab(tab) {
+            currentAuthTab = tab;
+            const tabBtnLogin = document.getElementById('tab-btn-login');
+            const tabBtnRegister = document.getElementById('tab-btn-register');
+            const perks = document.getElementById('auth-free-perks');
+            const submitBtnText = document.getElementById('btn-auth-text');
+            const alertBox = document.getElementById('auth-alert');
+            if (alertBox) alertBox.classList.add('hidden');
+
+            const cur = currentUiLang || 'fr';
+            const tr = I18N[cur] || I18N['fr'];
+
+            if (tab === 'login') {
+                if (tabBtnLogin) tabBtnLogin.className = "flex-1 pb-3 text-purple-600 border-b-2 border-purple-600 font-bold transition";
+                if (tabBtnRegister) tabBtnRegister.className = "flex-1 pb-3 text-slate-500 hover:text-slate-700 transition";
+                if (perks) perks.classList.add('hidden');
+                if (submitBtnText) submitBtnText.textContent = tr.auth_btn_login_submit || "Se connecter";
+            } else {
+                if (tabBtnRegister) tabBtnRegister.className = "flex-1 pb-3 text-purple-600 border-b-2 border-purple-600 font-bold transition";
+                if (tabBtnLogin) tabBtnLogin.className = "flex-1 pb-3 text-slate-500 hover:text-slate-700 transition";
+                if (perks) perks.classList.remove('hidden');
+                if (submitBtnText) submitBtnText.textContent = tr.auth_btn_register_submit || "Créer mon compte gratuit";
+            }
+        }
+
+        async function handleAuthSubmit(event) {
+            event.preventDefault();
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value.trim();
+            const alertBox = document.getElementById('auth-alert');
+            const submitBtn = document.getElementById('btn-auth-submit');
+
+            if (alertBox) alertBox.className = 'hidden mb-4 p-3 rounded-xl text-xs font-medium';
+            if (submitBtn) submitBtn.disabled = true;
+
+            const endpoint = currentAuthTab === 'login' ? '/api/auth/login' : '/api/auth/register';
+
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    if (alertBox) {
+                        alertBox.className = 'mb-4 p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200';
+                        alertBox.textContent = data.detail || 'Une erreur est survenue.';
+                        alertBox.classList.remove('hidden');
+                    }
+                    if (submitBtn) submitBtn.disabled = false;
+                    return;
+                }
+
+                localStorage.setItem('pdf_trans_token', data.token);
+                localStorage.setItem('pdf_trans_user', JSON.stringify(data));
+                closeAuthModal();
+                await checkAndUpdateAuth();
+
+                if (selectedFile) {
+                    await evaluateFileQuote(selectedFile);
+                }
+
+            } catch (err) {
+                if (alertBox) {
+                    alertBox.className = 'mb-4 p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200';
+                    alertBox.textContent = 'Erreur réseau de communication avec le serveur.';
+                    alertBox.classList.remove('hidden');
+                }
+            } finally {
+                if (submitBtn) submitBtn.disabled = false;
+            }
+        }
+
+        async function checkAndUpdateAuth() {
+            const token = localStorage.getItem('pdf_trans_token');
+            const guestArea = document.getElementById('auth-guest-area');
+            const userArea = document.getElementById('auth-user-area');
+            const userEmailSpan = document.getElementById('user-display-email');
+            const userQuotaBadge = document.getElementById('user-quota-badge');
+
+            if (!token) {
+                if (guestArea) guestArea.classList.remove('hidden');
+                if (userArea) userArea.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/auth/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) {
+                    localStorage.removeItem('pdf_trans_token');
+                    localStorage.removeItem('pdf_trans_user');
+                    if (guestArea) guestArea.classList.remove('hidden');
+                    if (userArea) userArea.classList.add('hidden');
+                    return;
+                }
+                const quotas = await res.json();
+                if (guestArea) guestArea.classList.add('hidden');
+                if (userArea) userArea.classList.remove('hidden');
+                if (userEmailSpan) userEmailSpan.textContent = quotas.email;
+                if (userQuotaBadge) {
+                    if (quotas.plan_tier === 'FREE') {
+                        userQuotaBadge.textContent = `${quotas.daily_remaining}/2 restants`;
+                        userQuotaBadge.className = "bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] font-black";
+                    } else if (quotas.plan_tier === 'STARTER') {
+                        userQuotaBadge.textContent = `Starter (${quotas.monthly_remaining}/150)`;
+                        userQuotaBadge.className = "bg-purple-600 text-white px-1.5 py-0.5 rounded text-[10px] font-black";
+                    } else if (quotas.plan_tier === 'PRO') {
+                        userQuotaBadge.textContent = `Pro (${quotas.daily_remaining}/10)`;
+                        userQuotaBadge.className = "bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px] font-black";
+                    }
+                }
+
+                // Détection du retour de paiement réussi Stripe
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('payment') === 'success') {
+                    const paidTier = (urlParams.get('tier') || 'STARTER').toUpperCase();
+                    try {
+                        await fetch('/api/stripe/confirm-payment-success?tier=' + paidTier, {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                    } catch (e) {}
+                    alert(`🎉 Félicitations ! Votre paiement a été validé par Stripe. Votre abonnement ${paidTier} est maintenant actif !`);
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    await checkAndUpdateAuth();
+                }
+            } catch (e) {
+                console.error("Auth check failed:", e);
+            }
+        }
+
+        
+        async function subscribeToTier(tier) {
+            const token = localStorage.getItem('pdf_trans_token');
+            if (!token) {
+                alert("Veuillez vous connecter ou créer un compte gratuit avant de choisir un abonnement.");
+                openAuthModal('login');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/stripe/create-checkout-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ tier: tier })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.detail || "Erreur lors de la préparation de l'abonnement.");
+                    return;
+                }
+
+                if (data.mode === 'stripe' && data.checkout_url) {
+                    window.location.href = data.checkout_url;
+                } else if (data.mode === 'simulation') {
+                    alert("🎉 Félicitations ! Votre abonnement " + tier + " est maintenant actif sur votre compte Supabase Cloud.");
+                    await checkAndUpdateAuth();
+                    if (selectedFile) {
+                        await evaluateFileQuote(selectedFile);
+                    }
+                }
+            } catch (e) {
+                alert("Erreur de communication avec le serveur : " + e);
+            }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('pdf_trans_token');
+            localStorage.removeItem('pdf_trans_user');
+            checkAndUpdateAuth();
+            if (selectedFile) {
+                evaluateFileQuote(selectedFile);
+            }
+        }
+
+    </script>
+
+    <!-- 8. AUTHENTICATION MODAL (LOGIN / REGISTER) -->
+    <div id="auth-modal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200">
+            
+            <!-- Modal Header -->
+            <div class="p-6 pb-0 relative">
+                <button onclick="closeAuthModal()" class="absolute top-5 right-5 rtl:right-auto rtl:left-5 text-slate-400 hover:text-slate-700 text-xl font-bold p-1 leading-none">&times;</button>
+                <div class="flex items-center space-x-2 mb-4 rtl:space-x-reverse">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm">
+                        TP
+                    </div>
+                    <span class="text-base font-extrabold text-slate-900 tracking-tight">translate-for-pdf<span class="text-purple-600">.com</span></span>
+                </div>
+
+                <!-- Tabs: Login vs Register -->
+                <div class="flex border-b border-slate-200 text-sm font-semibold">
+                    <button id="tab-btn-login" type="button" class="flex-1 pb-3 text-purple-600 border-b-2 border-purple-600 transition" onclick="switchAuthTab('login')">
+                        <span data-i18n="auth_tab_login">Se connecter</span>
+                    </button>
+                    <button id="tab-btn-register" type="button" class="flex-1 pb-3 text-slate-500 hover:text-slate-700 transition" onclick="switchAuthTab('register')">
+                        <span data-i18n="auth_tab_register">Créer un compte</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-6">
+                <!-- Alert Box -->
+                <div id="auth-alert" class="hidden mb-4 p-3 rounded-xl text-xs font-medium"></div>
+
+                <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+                    <div class="space-y-3.5 text-left rtl:text-right">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1" data-i18n="auth_lbl_email">Adresse Email</label>
+                            <input type="email" id="auth-email" required placeholder="nom@exemple.com" class="w-full text-sm rounded-lg border border-slate-300 p-2.5 bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                            <p id="disposable-hint" class="text-[11px] text-slate-400 mt-1" data-i18n="auth_email_hint">Anti-spam : Les emails temporaires/jetables sont refusés.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1" data-i18n="auth_lbl_pwd">Mot de passe</label>
+                            <input type="password" id="auth-password" required minlength="6" placeholder="••••••••" class="w-full text-sm rounded-lg border border-slate-300 p-2.5 bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                        </div>
+
+                        <!-- Free Account Benefits (Shown on register tab) -->
+                        <div id="auth-free-perks" class="hidden p-3.5 rounded-xl bg-purple-50 border border-purple-100 text-xs text-purple-900 space-y-1">
+                            <p class="font-bold text-purple-800" data-i18n="auth_perks_title">🎁 Débloquez immédiatement :</p>
+                            <p data-i18n="auth_perks_1">• <strong>2 documents gratuits / jour</strong> (au lieu de 1)</p>
+                            <p data-i18n="auth_perks_2">• <strong>Jusqu'à 10 pages</strong> (au lieu de 5)</p>
+                            <p data-i18n="auth_perks_3">• 100% gratuit à vie • Sans carte bancaire</p>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="btn-auth-submit" class="mt-5 w-full py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm shadow transition flex items-center justify-center space-x-2">
+                        <span id="btn-auth-text" data-i18n="auth_btn_login_submit">Se connecter</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

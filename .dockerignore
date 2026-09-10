@@ -1,0 +1,12 @@
+﻿.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+build/
+dist/
+tests/
+TraducteurPDF_CodeSource/
+*.bat
+backend/local_dev.db
