@@ -370,20 +370,34 @@ class PdfProcessor:
 
                 prev_l, prev_rect, prev_text, prev_span0, prev_bold, prev_size = current_group[-1]
 
-                # 1. Check for column collision on same row (y overlap with horizontal gap)
+                # 1. Check if line crosses an image vertical boundary compared to prev line (wrap-around next to figure)
+                crosses_img = False
+                for img_r in image_rects:
+                    prev_in = (prev_rect.y1 > img_r.y0 and prev_rect.y0 < img_r.y1)
+                    curr_in = (l_rect.y1 > img_r.y0 and l_rect.y0 < img_r.y1)
+                    if prev_in != curr_in:
+                        crosses_img = True
+                        break
+
+                if crosses_img:
+                    units.append(current_group)
+                    current_group = [(l, l_rect, l_text, span0, is_bold, font_size)]
+                    continue
+
+                # 2. Check for column collision on same row (y overlap with horizontal gap)
                 y_overlap = min(l_rect.y1, prev_rect.y1) - max(l_rect.y0, prev_rect.y0)
                 if y_overlap > 3.0:
                     units.append(current_group)
                     current_group = [(l, l_rect, l_text, span0, is_bold, font_size)]
                     continue
 
-                # 2. Check for indentation jumps (e.g. wrap-around next to an image)
+                # 3. Check for indentation jumps (e.g. wrap-around next to an image)
                 if abs(l_rect.x0 - prev_rect.x0) > 30.0:
                     units.append(current_group)
                     current_group = [(l, l_rect, l_text, span0, is_bold, font_size)]
                     continue
 
-                # 3. Check for font style shifts (Heading bold vs body regular)
+                # 4. Check for font style shifts (Heading bold vs body regular)
                 if is_bold != prev_bold or abs(font_size - prev_size) > 2.5:
                     units.append(current_group)
                     current_group = [(l, l_rect, l_text, span0, is_bold, font_size)]
@@ -421,16 +435,6 @@ class PdfProcessor:
                 if alignment == fitz.TEXT_ALIGN_LEFT:
                     alignment = fitz.TEXT_ALIGN_RIGHT
 
-            # Prevent collision with any images on the page:
-            for img_r in image_rects:
-                if union_rect.intersects(img_r):
-                    # If text starts to the right of image, push x0 safely to image right edge
-                    if union_rect.x1 > img_r.x1 and union_rect.x0 < img_r.x1:
-                        union_rect.x0 = max(union_rect.x0, img_r.x1 + 6.0)
-                    # If text is below image, push y0 safely below image
-                    elif union_rect.y1 > img_r.y1 and union_rect.y0 < img_r.y1:
-                        union_rect.y0 = max(union_rect.y0, img_r.y1 + 6.0)
-
             is_fig = bool(FIGURE_REGEX.match(unit_text))
             is_inside_image = any(
                 img_r.contains(union_rect) or
@@ -438,8 +442,11 @@ class PdfProcessor:
                 for img_r in image_rects
             )
 
+            line_rects = [fitz.Rect(item[1]) for item in group]
+
             refined_units.append({
                 "rect": union_rect,
+                "line_rects": line_rects,
                 "original_text": unit_text,
                 "fontsize": font_size,
                 "fontname": resolved_font,
@@ -635,14 +642,19 @@ class PdfProcessor:
                 for u, trans in zip(units_to_translate, translated_list):
                     u["translated_text"] = cls.preserve_case(u["original_text"], trans, target_lang=to_lang)
 
-            # 2. Redact original text strictly within visual unit rects (skipping untouched symbols and skipped figures)
+            # 2. Delete any existing form widgets/annotations on this page to prevent overlap
+            for w in list(page.widgets()):
+                page.delete_widget(w)
+
+            # Redact original text strictly within exact line rects (skipping untouched symbols and skipped figures)
             for unit in visual_units:
                 if unit.get("is_skipped", False):
                     continue
                 orig_text = unit["original_text"].strip()
                 if len(orig_text) <= 1 and not orig_text.isalnum():
                     continue
-                page.add_redact_annot(unit["rect"], fill=False)
+                for l_rect in unit.get("line_rects", [unit["rect"]]):
+                    page.add_redact_annot(l_rect, fill=False)
 
             # Apply redaction without touching images or drawings
             page.apply_redactions(

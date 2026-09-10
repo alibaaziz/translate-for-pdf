@@ -89,6 +89,8 @@ class NllbTranslatorEngine:
         self._translation_cache = {}
         self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
         self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+        self._model_rotation_idx = 0
+        self._model_cooldowns = {}
 
         cuda_count = 0
         if CTRANSLATE2_AVAILABLE:
@@ -328,13 +330,31 @@ class NllbTranslatorEngine:
 
         return fallback_chunk
 
+    def _pick_next_groq_model(self, chat_models: list) -> tuple[str, float]:
+        """
+        Picks the next available model in round-robin fashion, skipping any model
+        currently in cooldown due to a 429 rate limit. If all models are in cooldown,
+        returns the model whose cooldown expires earliest and the seconds to wait.
+        """
+        now = time.time()
+        available = [m for m in chat_models if now >= self._model_cooldowns.get(m, 0.0)]
+        if available:
+            idx = self._model_rotation_idx % len(available)
+            self._model_rotation_idx += 1
+            return available[idx], 0.0
+
+        # All models currently in cooldown: find the earliest expiring cooldown
+        earliest_m = min(chat_models, key=lambda m: self._model_cooldowns.get(m, 0.0))
+        wait_time = max(0.2, self._model_cooldowns.get(earliest_m, now) - now + 0.2)
+        return earliest_m, wait_time
+
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
         Translates a list of texts using Groq Cloud API.
         Features:
-        - Small 8-item chunks (lightning fast, zero TPM / JSON validator errors)
-        - Dynamic model rotation across models (Qwen, GPT-OSS, Allam)
-        - Exponential backoff with retry-after parsing on HTTP 429
+        - Whole-page chunks (~12 items) to minimize HTTP round-trips
+        - Round-robin model rotation across calls (Qwen, GPT-OSS, Allam)
+        - Cooldown tracking on HTTP 429 so traffic routes instantly to healthy models
         - Adaptive parser that never drops translated segments
         """
         api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
@@ -354,7 +374,7 @@ class NllbTranslatorEngine:
             "Content-Type": "application/json"
         }
 
-        chunk_size = 8
+        chunk_size = 12
         all_translated = []
 
         for i in range(0, len(texts_to_translate), chunk_size):
@@ -370,11 +390,14 @@ class NllbTranslatorEngine:
             )
 
             success = False
-            max_attempts = 6
-            model_index = (i // chunk_size) % len(chat_models)
+            max_attempts = 10
 
             for attempt in range(max_attempts):
-                try_model = chat_models[model_index % len(chat_models)]
+                try_model, wait_needed = self._pick_next_groq_model(chat_models)
+                if wait_needed > 0.0:
+                    wait_secs = min(wait_needed, 6.0)
+                    print(f"[Groq Engine] Tous les modèles sont en attente de quota. Pause de {wait_secs:.1f}s pour {try_model}...")
+                    time.sleep(wait_secs)
 
                 payload = {
                     "model": try_model,
@@ -399,7 +422,7 @@ class NllbTranslatorEngine:
                             break
 
                         elif resp.status_code == 429:
-                            retry_after = 2.0
+                            retry_after = 2.5
                             try:
                                 h_retry = resp.headers.get("retry-after")
                                 if h_retry:
@@ -412,31 +435,32 @@ class NllbTranslatorEngine:
                             except Exception:
                                 pass
 
-                            wait_secs = min(max(retry_after, 1.5), 6.0)
-                            print(f"[Groq API] Rate limit (429) on {try_model}. Waiting {wait_secs:.1f}s and rotating model...")
-                            time.sleep(wait_secs)
-                            model_index += 1
+                            cooldown = min(max(retry_after, 2.0), 8.0)
+                            self._model_cooldowns[try_model] = time.time() + cooldown
+                            print(f"[Groq Engine] Limite de débit (429) sur {try_model}. Cooldown {cooldown:.1f}s, bascule immédiate sur le modèle suivant.")
+                            time.sleep(0.2)
 
                         elif resp.status_code == 400:
-                            print(f"[Groq API] HTTP 400 on {try_model}: {resp.text[:200]}, rotating model.")
-                            model_index += 1
-                            time.sleep(0.5)
+                            print(f"[Groq Engine] HTTP 400 sur {try_model}: {resp.text[:200]}, bascule de modèle.")
+                            self._model_cooldowns[try_model] = time.time() + 1.0
+                            time.sleep(0.3)
 
                         else:
-                            print(f"[Groq API] HTTP {resp.status_code} on {try_model}: {resp.text[:200]}")
-                            model_index += 1
-                            time.sleep(1.0)
+                            print(f"[Groq Engine] HTTP {resp.status_code} sur {try_model}: {resp.text[:200]}")
+                            self._model_cooldowns[try_model] = time.time() + 2.0
+                            time.sleep(0.5)
 
                 except Exception as e:
-                    print(f"[Groq API] Exception on {try_model}: {e}")
-                    model_index += 1
-                    time.sleep(1.0)
+                    print(f"[Groq Engine] Exception sur {try_model}: {e}")
+                    self._model_cooldowns[try_model] = time.time() + 2.0
+                    time.sleep(0.5)
 
             if not success:
-                print(f"[Groq API] Warning: All {max_attempts} attempts failed for chunk of {len(chunk)} elements.")
+                print(f"[Groq Engine] Attention: Échec des {max_attempts} tentatives pour le groupe de {len(chunk)} éléments.")
                 all_translated.extend(chunk)
 
-            time.sleep(0.2)
+            # Cadencement poli de 0.4s entre les requêtes pour ne jamais saturer le débit (RPM)
+            time.sleep(0.4)
 
         return all_translated
 
