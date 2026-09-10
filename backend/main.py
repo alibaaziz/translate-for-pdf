@@ -85,10 +85,32 @@ def get_shields_status():
 @app.get("/api/diagnostic")
 def get_diagnostic():
     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    groq_error = None
+    groq_test_result = None
+    if groq_key:
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {groq_key}"},
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": "Translate to French: Hello world"}]
+                    }
+                )
+                if resp.status_code == 200:
+                    groq_test_result = resp.json()["choices"][0]["message"]["content"]
+                else:
+                    groq_error = f"HTTP {resp.status_code}: {resp.text}"
+        except Exception as e:
+            groq_error = str(e)
+
     return {
         "status": "online",
         "groq_configured": bool(groq_key),
         "groq_prefix": groq_key[:7] + "..." if groq_key else "NON_CONFIGUREE",
+        "groq_test_result": groq_test_result,
+        "groq_error": groq_error,
         "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
         "stripe_configured": bool(os.environ.get("STRIPE_SECRET_KEY"))
     }

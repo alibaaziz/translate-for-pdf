@@ -239,39 +239,44 @@ class NllbTranslatorEngine:
                 "response_format": {"type": "json_object"}
             }
 
-            try:
-                with httpx.Client(timeout=45.0) as client:
-                    resp = client.post(url, headers=headers, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        raw_content = data["choices"][0]["message"]["content"].strip()
-                        # Clean potential markdown backticks
-                        if "```" in raw_content:
-                            raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.MULTILINE)
-                            raw_content = re.sub(r"\s*```$", "", raw_content, flags=re.MULTILINE)
-                        start_brace = raw_content.find("{")
-                        end_brace = raw_content.rfind("}")
-                        if start_brace != -1 and end_brace != -1:
-                            raw_content = raw_content[start_brace:end_brace + 1]
+            success = False
+            for try_model in [model, "llama-3.1-8b-instant"]:
+                payload["model"] = try_model
+                try:
+                    with httpx.Client(timeout=45.0) as client:
+                        resp = client.post(url, headers=headers, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            raw_content = data["choices"][0]["message"]["content"].strip()
+                            if "```" in raw_content:
+                                raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.MULTILINE)
+                                raw_content = re.sub(r"\s*```$", "", raw_content, flags=re.MULTILINE)
+                            start_brace = raw_content.find("{")
+                            end_brace = raw_content.rfind("}")
+                            if start_brace != -1 and end_brace != -1:
+                                raw_content = raw_content[start_brace:end_brace + 1]
 
-                        parsed = json.loads(raw_content)
-                        translations = None
-                        if isinstance(parsed, dict):
-                            translations = parsed.get("translations") or parsed.get("translated_texts") or list(parsed.values())[0]
-                        elif isinstance(parsed, list):
-                            translations = parsed
+                            parsed = json.loads(raw_content)
+                            translations = None
+                            if isinstance(parsed, dict):
+                                translations = parsed.get("translations") or parsed.get("translated_texts") or list(parsed.values())[0]
+                            elif isinstance(parsed, list):
+                                translations = parsed
 
-                        if isinstance(translations, list) and len(translations) == len(chunk):
-                            all_translated.extend(translations)
-                            continue
+                            if isinstance(translations, list) and len(translations) == len(chunk):
+                                all_translated.extend(translations)
+                                success = True
+                                break
+                            else:
+                                print(f"[Groq API] Mismatch length on {try_model}: got {len(translations) if isinstance(translations, list) else 'non-list'}, expected {len(chunk)}")
                         else:
-                            print(f"[Groq API] Translations count mismatch: got {len(translations) if isinstance(translations, list) else 'non-list'}, expected {len(chunk)}")
-                    else:
-                        print(f"[Groq API] HTTP {resp.status_code}: {resp.text[:300]}")
-            except Exception as e:
-                print(f"[Groq API] Erreur appel API: {e}")
+                            print(f"[Groq API] HTTP {resp.status_code} on {try_model}: {resp.text[:300]}")
+                except Exception as e:
+                    print(f"[Groq API] Error on {try_model}: {e}")
 
-            all_translated.extend(chunk)
+            if not success:
+                print(f"[Groq API] Translation failed for chunk of {len(chunk)} elements.")
+                all_translated.extend(chunk)
 
         return all_translated
 
