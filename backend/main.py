@@ -1,6 +1,7 @@
 import os
 import sys
 import fitz
+import httpx
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form, Header, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
