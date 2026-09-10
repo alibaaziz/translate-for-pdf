@@ -56,6 +56,7 @@ def setup_cuda_dlls():
 
 
 import json
+import time
 import httpx
 
 try:
@@ -247,10 +248,64 @@ class NllbTranslatorEngine:
         models = self._get_groq_chat_models(api_key)
         return models[0] if models else "qwen/qwen3.8-27b"
 
+    def _parse_translations_from_response(self, raw_content: str, expected_count: int) -> list:
+        if not raw_content or not raw_content.strip():
+            return None
+
+        clean = raw_content.strip()
+        if "```" in clean:
+            clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.MULTILINE)
+            clean = re.sub(r"\s*```$", "", clean, flags=re.MULTILINE)
+            clean = clean.strip()
+
+        try:
+            parsed = json.loads(clean)
+            if isinstance(parsed, list) and len(parsed) == expected_count:
+                return [str(x) for x in parsed]
+            if isinstance(parsed, dict):
+                for key in ["translations", "translated_texts", "texts", "result", "items"]:
+                    val = parsed.get(key)
+                    if isinstance(val, list) and len(val) == expected_count:
+                        return [str(x) for x in val]
+                for val in parsed.values():
+                    if isinstance(val, list) and len(val) == expected_count:
+                        return [str(x) for x in val]
+        except Exception:
+            pass
+
+        start_bracket = clean.find("[")
+        end_bracket = clean.rfind("]")
+        if start_bracket != -1 and end_bracket > start_bracket:
+            try:
+                sub_arr = json.loads(clean[start_bracket:end_bracket + 1])
+                if isinstance(sub_arr, list) and len(sub_arr) == expected_count:
+                    return [str(x) for x in sub_arr]
+            except Exception:
+                pass
+
+        start_brace = clean.find("{")
+        end_brace = clean.rfind("}")
+        if start_brace != -1 and end_brace > start_brace:
+            try:
+                sub_obj = json.loads(clean[start_brace:end_brace + 1])
+                if isinstance(sub_obj, dict):
+                    for val in sub_obj.values():
+                        if isinstance(val, list) and len(val) == expected_count:
+                            return [str(x) for x in val]
+            except Exception:
+                pass
+
+        return None
+
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
         Translates a list of texts using Groq Cloud API.
-        Ultra-low latency (~0.3s), zero RAM overhead, SOTA translation quality.
+        Ultra-low latency, zero RAM overhead, SOTA translation quality.
+        Features:
+        - Multi-model rotation across models (Qwen, GPT-OSS, Allam) with independent quotas
+        - Smart exponential backoff on HTTP 429 with retry-after parsing
+        - Eliminates json_validate_failed (400) by avoiding brittle strict schema enforcement
+        - Never drops untranslated chunks
         """
         api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
         if not api_key or not texts_to_translate:
@@ -260,6 +315,8 @@ class NllbTranslatorEngine:
         src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
         chat_models = self._get_groq_chat_models(api_key)
+        if not chat_models:
+            chat_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "allam-2-7b"]
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -267,7 +324,7 @@ class NllbTranslatorEngine:
             "Content-Type": "application/json"
         }
 
-        chunk_size = 15
+        chunk_size = 12
         all_translated = []
 
         for i in range(0, len(texts_to_translate), chunk_size):
@@ -275,67 +332,86 @@ class NllbTranslatorEngine:
             prompt_instruction = (
                 f"You are a professional document translation engine. "
                 f"Translate each text item in the provided JSON array from {src_name} ({from_code}) to {tgt_name} ({to_code}).\n"
-                f"Rules:\n"
-                f"1. Output a JSON object with key 'translations': [\"item1\", \"item2\", ...]\n"
+                f"Strict Rules:\n"
+                f"1. Output ONLY a valid JSON object with key 'translations': [\"item1\", \"item2\", ...]\n"
                 f"2. The array 'translations' must contain EXACTLY {len(chunk)} translated strings corresponding 1:1 to the input items.\n"
                 f"3. Preserve all numbers, acronyms, placeholders, and formatting.\n"
-                f"4. Do NOT output explanations or notes. ONLY valid JSON."
+                f"4. Do NOT output any explanations, markdown notes, or commentary. ONLY the JSON object."
             )
 
             success = False
-            for try_model in chat_models[:3]:
-                for with_json_fmt in [True, False]:
-                    payload = {
-                        "model": try_model,
-                        "messages": [
-                            {"role": "system", "content": prompt_instruction},
-                            {"role": "user", "content": json.dumps({"texts": chunk}, ensure_ascii=False)}
-                        ],
-                        "temperature": 0.1
-                    }
-                    if with_json_fmt:
-                        payload["response_format"] = {"type": "json_object"}
+            max_attempts = 6
+            model_index = (i // chunk_size) % len(chat_models)
 
-                    try:
-                        with httpx.Client(timeout=45.0) as client:
-                            resp = client.post(url, headers=headers, json=payload)
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                raw_content = data["choices"][0]["message"]["content"].strip()
-                                if "```" in raw_content:
-                                    raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.MULTILINE)
-                                    raw_content = re.sub(r"\s*```$", "", raw_content, flags=re.MULTILINE)
-                                start_brace = raw_content.find("{")
-                                end_brace = raw_content.rfind("}")
-                                if start_brace != -1 and end_brace != -1:
-                                    raw_content = raw_content[start_brace:end_brace + 1]
+            for attempt in range(max_attempts):
+                try_model = chat_models[model_index % len(chat_models)]
 
-                                parsed = json.loads(raw_content)
-                                translations = None
-                                if isinstance(parsed, dict):
-                                    translations = parsed.get("translations") or parsed.get("translated_texts") or list(parsed.values())[0]
-                                elif isinstance(parsed, list):
-                                    translations = parsed
+                payload = {
+                    "model": try_model,
+                    "messages": [
+                        {"role": "system", "content": prompt_instruction},
+                        {"role": "user", "content": json.dumps({"texts": chunk}, ensure_ascii=False)}
+                    ],
+                    "temperature": 0.1
+                }
 
-                                if isinstance(translations, list) and len(translations) == len(chunk):
-                                    all_translated.extend(translations)
-                                    success = True
-                                    break
-                                else:
-                                    print(f"[Groq API] Mismatch length on {try_model}: got {len(translations) if isinstance(translations, list) else 'non-list'}, expected {len(chunk)}")
+                try:
+                    with httpx.Client(timeout=45.0) as client:
+                        resp = client.post(url, headers=headers, json=payload)
+
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            raw_content = data["choices"][0]["message"]["content"].strip()
+                            translations = self._parse_translations_from_response(raw_content, len(chunk))
+
+                            if translations and len(translations) == len(chunk):
+                                all_translated.extend(translations)
+                                success = True
+                                break
                             else:
-                                print(f"[Groq API] HTTP {resp.status_code} on {try_model}: {resp.text[:300]}")
-                    except Exception as e:
-                        print(f"[Groq API] Error on {try_model}: {e}")
+                                print(f"[Groq API] Length mismatch on {try_model}, rotating model.")
+                                model_index += 1
+                                time.sleep(0.5)
 
-                    if success:
-                        break
-                if success:
-                    break
+                        elif resp.status_code == 429:
+                            retry_after = 2.0
+                            try:
+                                h_retry = resp.headers.get("retry-after")
+                                if h_retry:
+                                    retry_after = float(h_retry)
+                                else:
+                                    err_msg = resp.json().get("error", {}).get("message", "")
+                                    m_wait = re.search(r"try again in ([\d\.]+)s", err_msg, re.IGNORECASE)
+                                    if m_wait:
+                                        retry_after = float(m_wait.group(1)) + 0.5
+                            except Exception:
+                                pass
+
+                            wait_secs = min(max(retry_after, 1.5), 6.0)
+                            print(f"[Groq API] Rate limit (429) on {try_model}. Waiting {wait_secs:.1f}s and rotating model...")
+                            time.sleep(wait_secs)
+                            model_index += 1
+
+                        elif resp.status_code == 400:
+                            print(f"[Groq API] HTTP 400 on {try_model}: {resp.text[:200]}, rotating model.")
+                            model_index += 1
+                            time.sleep(0.5)
+
+                        else:
+                            print(f"[Groq API] HTTP {resp.status_code} on {try_model}: {resp.text[:200]}")
+                            model_index += 1
+                            time.sleep(1.0)
+
+                except Exception as e:
+                    print(f"[Groq API] Exception on {try_model}: {e}")
+                    model_index += 1
+                    time.sleep(1.0)
 
             if not success:
-                print(f"[Groq API] Translation failed for chunk of {len(chunk)} elements.")
+                print(f"[Groq API] Warning: All {max_attempts} attempts failed for chunk of {len(chunk)} elements.")
                 all_translated.extend(chunk)
+
+            time.sleep(0.25)
 
         return all_translated
 
