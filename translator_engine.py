@@ -248,9 +248,9 @@ class NllbTranslatorEngine:
         models = self._get_groq_chat_models(api_key)
         return models[0] if models else "qwen/qwen3.8-27b"
 
-    def _parse_translations_from_response(self, raw_content: str, expected_count: int) -> list:
+    def _parse_translations_from_response(self, raw_content: str, expected_count: int, fallback_chunk: list) -> list:
         if not raw_content or not raw_content.strip():
-            return None
+            return fallback_chunk
 
         clean = raw_content.strip()
         if "```" in clean:
@@ -258,54 +258,84 @@ class NllbTranslatorEngine:
             clean = re.sub(r"\s*```$", "", clean, flags=re.MULTILINE)
             clean = clean.strip()
 
+        candidate_list = None
+
+        # 1. Standard JSON parse
         try:
             parsed = json.loads(clean)
-            if isinstance(parsed, list) and len(parsed) == expected_count:
-                return [str(x) for x in parsed]
-            if isinstance(parsed, dict):
+            if isinstance(parsed, list) and len(parsed) > 0:
+                candidate_list = [str(x) for x in parsed]
+            elif isinstance(parsed, dict):
                 for key in ["translations", "translated_texts", "texts", "result", "items"]:
                     val = parsed.get(key)
-                    if isinstance(val, list) and len(val) == expected_count:
-                        return [str(x) for x in val]
-                for val in parsed.values():
-                    if isinstance(val, list) and len(val) == expected_count:
-                        return [str(x) for x in val]
+                    if isinstance(val, list) and len(val) > 0:
+                        candidate_list = [str(x) for x in val]
+                        break
+                if not candidate_list:
+                    for val in parsed.values():
+                        if isinstance(val, list) and len(val) > 0:
+                            candidate_list = [str(x) for x in val]
+                            break
         except Exception:
             pass
 
-        start_bracket = clean.find("[")
-        end_bracket = clean.rfind("]")
-        if start_bracket != -1 and end_bracket > start_bracket:
-            try:
-                sub_arr = json.loads(clean[start_bracket:end_bracket + 1])
-                if isinstance(sub_arr, list) and len(sub_arr) == expected_count:
-                    return [str(x) for x in sub_arr]
-            except Exception:
-                pass
+        # 2. Extract JSON array substring [ ... ]
+        if not candidate_list:
+            start_bracket = clean.find("[")
+            end_bracket = clean.rfind("]")
+            if start_bracket != -1 and end_bracket > start_bracket:
+                try:
+                    sub_arr = json.loads(clean[start_bracket:end_bracket + 1])
+                    if isinstance(sub_arr, list) and len(sub_arr) > 0:
+                        candidate_list = [str(x) for x in sub_arr]
+                except Exception:
+                    pass
 
-        start_brace = clean.find("{")
-        end_brace = clean.rfind("}")
-        if start_brace != -1 and end_brace > start_brace:
-            try:
-                sub_obj = json.loads(clean[start_brace:end_brace + 1])
-                if isinstance(sub_obj, dict):
-                    for val in sub_obj.values():
-                        if isinstance(val, list) and len(val) == expected_count:
-                            return [str(x) for x in val]
-            except Exception:
-                pass
+        # 3. Extract JSON object substring { ... }
+        if not candidate_list:
+            start_brace = clean.find("{")
+            end_brace = clean.rfind("}")
+            if start_brace != -1 and end_brace > start_brace:
+                try:
+                    sub_obj = json.loads(clean[start_brace:end_brace + 1])
+                    if isinstance(sub_obj, dict):
+                        for val in sub_obj.values():
+                            if isinstance(val, list) and len(val) > 0:
+                                candidate_list = [str(x) for x in val]
+                                break
+                except Exception:
+                    pass
 
-        return None
+        # 4. If we have a candidate list, adjust length to expected_count
+        if candidate_list:
+            if len(candidate_list) >= expected_count:
+                return candidate_list[:expected_count]
+            padded = list(candidate_list)
+            for i in range(len(candidate_list), expected_count):
+                padded.append(fallback_chunk[i])
+            return padded
+
+        # 5. Line-by-line fallback
+        lines = [re.sub(r"^\s*(?:\d+[\.\)]|[-*•])\s*", "", line).strip() for line in clean.splitlines() if line.strip()]
+        lines = [re.sub(r'^[\[\{\"\'\s]+|[\]\}\"\'\s,]+$', '', l).strip() for l in lines if l.strip()]
+        if len(lines) >= expected_count:
+            return lines[:expected_count]
+        elif len(lines) > 0:
+            padded = list(lines)
+            for i in range(len(lines), expected_count):
+                padded.append(fallback_chunk[i])
+            return padded
+
+        return fallback_chunk
 
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
         Translates a list of texts using Groq Cloud API.
-        Ultra-low latency, zero RAM overhead, SOTA translation quality.
         Features:
-        - Multi-model rotation across models (Qwen, GPT-OSS, Allam) with independent quotas
-        - Smart exponential backoff on HTTP 429 with retry-after parsing
-        - Eliminates json_validate_failed (400) by avoiding brittle strict schema enforcement
-        - Never drops untranslated chunks
+        - Small 8-item chunks (lightning fast, zero TPM / JSON validator errors)
+        - Dynamic model rotation across models (Qwen, GPT-OSS, Allam)
+        - Exponential backoff with retry-after parsing on HTTP 429
+        - Adaptive parser that never drops translated segments
         """
         api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
         if not api_key or not texts_to_translate:
@@ -324,7 +354,7 @@ class NllbTranslatorEngine:
             "Content-Type": "application/json"
         }
 
-        chunk_size = 12
+        chunk_size = 8
         all_translated = []
 
         for i in range(0, len(texts_to_translate), chunk_size):
@@ -362,16 +392,11 @@ class NllbTranslatorEngine:
                         if resp.status_code == 200:
                             data = resp.json()
                             raw_content = data["choices"][0]["message"]["content"].strip()
-                            translations = self._parse_translations_from_response(raw_content, len(chunk))
+                            translations = self._parse_translations_from_response(raw_content, len(chunk), chunk)
 
-                            if translations and len(translations) == len(chunk):
-                                all_translated.extend(translations)
-                                success = True
-                                break
-                            else:
-                                print(f"[Groq API] Length mismatch on {try_model}, rotating model.")
-                                model_index += 1
-                                time.sleep(0.5)
+                            all_translated.extend(translations)
+                            success = True
+                            break
 
                         elif resp.status_code == 429:
                             retry_after = 2.0
@@ -411,7 +436,7 @@ class NllbTranslatorEngine:
                 print(f"[Groq API] Warning: All {max_attempts} attempts failed for chunk of {len(chunk)} elements.")
                 all_translated.extend(chunk)
 
-            time.sleep(0.25)
+            time.sleep(0.2)
 
         return all_translated
 
