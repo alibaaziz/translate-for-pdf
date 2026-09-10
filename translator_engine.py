@@ -203,28 +203,46 @@ class NllbTranslatorEngine:
         if cached_model:
             return cached_model
 
-        env_model = os.environ.get("GROQ_MODEL", "").strip()
-        if env_model:
-            self._cached_groq_model = env_model
-            return env_model
+        def is_valid_chat_model(m_id: str) -> bool:
+            low = m_id.lower()
+            if any(bad in low for bad in ["whisper", "guard", "safeguard", "audio", "orpheus", "vision", "embed"]):
+                return False
+            return True
+
+        preferred = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+            "qwen/qwen3.8-27b",
+            "qwen/qwen3.6-27b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "allam-2-7b"
+        ]
 
         try:
             with httpx.Client(timeout=10.0) as client:
                 resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"})
                 if resp.status_code == 200:
                     available = [m["id"] for m in resp.json().get("data", [])]
-                    for cand in available:
-                        if "llama" in cand.lower() and ("instant" in cand.lower() or "8b" in cand.lower() or "versatile" in cand.lower()):
-                            print(f"[Groq Engine] Modele actif selectionne: {cand}")
-                            self._cached_groq_model = cand
-                            return cand
-                    if available:
-                        self._cached_groq_model = available[0]
-                        return available[0]
+                    chat_models = [m for m in available if is_valid_chat_model(m)]
+
+                    for pref in preferred:
+                        found = next((c for c in chat_models if pref.lower() in c.lower()), None)
+                        if found:
+                            print(f"[Groq Engine] Modele actif selectionne: {found}")
+                            self._cached_groq_model = found
+                            return found
+
+                    if chat_models:
+                        print(f"[Groq Engine] Modele alternatif selectionne: {chat_models[0]}")
+                        self._cached_groq_model = chat_models[0]
+                        return chat_models[0]
         except Exception as e:
             print(f"[Groq Engine] Erreur detection des modeles: {e}")
 
-        self._cached_groq_model = "llama-3.1-8b-instant"
+        self._cached_groq_model = "qwen/qwen3.8-27b"
         return self._cached_groq_model
 
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:

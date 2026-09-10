@@ -109,10 +109,29 @@ def get_diagnostic():
                 m_resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
                 models_status = m_resp.status_code
                 available_models = [m["id"] for m in m_resp.json().get("data", [])] if m_resp.status_code == 200 else []
-                selected_model = available_models[0] if available_models else "llama3-8b-8192"
-                for cand in available_models:
-                    if "llama" in cand.lower() and ("instant" in cand.lower() or "8b" in cand.lower() or "versatile" in cand.lower()):
-                        selected_model = cand
+                def is_valid_chat_model(m_id: str) -> bool:
+                    low = m_id.lower()
+                    if any(bad in low for bad in ["whisper", "guard", "safeguard", "audio", "orpheus", "vision", "embed"]):
+                        return False
+                    return True
+
+                chat_models = [m for m in available_models if is_valid_chat_model(m)]
+                preferred = [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-8b-instant",
+                    "llama3-70b-8192",
+                    "llama3-8b-8192",
+                    "qwen/qwen3.8-27b",
+                    "qwen/qwen3.6-27b",
+                    "openai/gpt-oss-120b",
+                    "openai/gpt-oss-20b",
+                    "allam-2-7b"
+                ]
+                selected_model = chat_models[0] if chat_models else "qwen/qwen3.8-27b"
+                for pref in preferred:
+                    found = next((c for c in chat_models if pref.lower() in c.lower()), None)
+                    if found:
+                        selected_model = found
                         break
 
                 resp = client.post(
