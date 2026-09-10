@@ -213,11 +213,14 @@ class NllbTranslatorEngine:
                 resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"})
                 if resp.status_code == 200:
                     available = [m["id"] for m in resp.json().get("data", [])]
-                    for cand in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"]:
-                        if cand in available:
+                    for cand in available:
+                        if "llama" in cand.lower() and ("instant" in cand.lower() or "8b" in cand.lower() or "versatile" in cand.lower()):
                             print(f"[Groq Engine] Modele actif selectionne: {cand}")
                             self._cached_groq_model = cand
                             return cand
+                    if available:
+                        self._cached_groq_model = available[0]
+                        return available[0]
         except Exception as e:
             print(f"[Groq Engine] Erreur detection des modeles: {e}")
 

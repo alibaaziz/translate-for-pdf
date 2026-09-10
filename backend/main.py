@@ -93,10 +93,11 @@ def get_diagnostic():
         try:
             with httpx.Client(timeout=10.0) as client:
                 m_resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
+                models_status = m_resp.status_code
                 available_models = [m["id"] for m in m_resp.json().get("data", [])] if m_resp.status_code == 200 else []
-                selected_model = "llama-3.1-8b-instant"
-                for cand in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"]:
-                    if cand in available_models:
+                selected_model = available_models[0] if available_models else "llama3-8b-8192"
+                for cand in available_models:
+                    if "llama" in cand.lower() and ("instant" in cand.lower() or "8b" in cand.lower() or "versatile" in cand.lower()):
                         selected_model = cand
                         break
 
@@ -120,6 +121,8 @@ def get_diagnostic():
         "groq_configured": bool(groq_key),
         "groq_prefix": groq_key[:7] + "..." if groq_key else "NON_CONFIGUREE",
         "groq_model_selected": selected_model,
+        "available_models": available_models if 'available_models' in locals() else [],
+        "models_api_status": models_status if 'models_status' in locals() else None,
         "groq_test_result": groq_test_result,
         "groq_error": groq_error,
         "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
