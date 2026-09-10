@@ -109,6 +109,21 @@ def get_diagnostic():
                 m_resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
                 models_status = m_resp.status_code
                 available_models = [m["id"] for m in m_resp.json().get("data", [])] if m_resp.status_code == 200 else []
+
+                scout_id = "meta-llama/llama-4-scout-17b-16e-instruct"
+                if scout_id not in available_models:
+                    try:
+                        probe = client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {groq_key}"},
+                            json={"model": scout_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+                            timeout=3.0
+                        )
+                        if probe.status_code in (200, 429):
+                            available_models.insert(0, scout_id)
+                    except Exception:
+                        pass
+
                 def is_valid_chat_model(m_id: str) -> bool:
                     low = m_id.lower()
                     if any(bad in low for bad in ["whisper", "guard", "safeguard", "audio", "orpheus", "vision", "embed"]):
