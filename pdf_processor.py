@@ -1,5 +1,6 @@
 import os
 import re
+import fitz  # PyMuPDF
 try:
     from PyQt6.QtGui import QImage, QPixmap
 except ImportError:
