@@ -1570,10 +1570,17 @@
                     headers: headers,
                     body: formData
                 });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || `Erreur serveur (HTTP ${res.status})`);
+                }
                 const data = await res.json();
+                if (!data.task_id) {
+                    throw new Error("Aucun identifiant de tâche reçu du serveur.");
+                }
                 pollTaskStatus(data.task_id, fromLang, toLang);
             } catch (err) {
-                alert('Erreur lors du lancement de la traduction : ' + err);
+                alert('Erreur lors du lancement de la traduction : ' + (err.message || err));
                 workspaceUpload.classList.remove('hidden');
                 workspaceProgress.classList.add('hidden');
             }
@@ -1581,13 +1588,25 @@
 
         // Poll translation progress
         function pollTaskStatus(taskId, fromLang, toLang) {
+            let errorCount = 0;
             const interval = setInterval(async () => {
                 try {
                     const res = await fetch(`/api/status/${taskId}`);
+                    if (!res.ok) {
+                        errorCount++;
+                        if (errorCount >= 4) {
+                            clearInterval(interval);
+                            alert("La session de traduction est introuvable (le serveur a redémarré suite à une mise à jour). Veuillez relancer votre document.");
+                            workspaceUpload.classList.remove('hidden');
+                            workspaceProgress.classList.add('hidden');
+                        }
+                        return;
+                    }
+                    errorCount = 0;
                     const task = await res.json();
 
-                    progressBarFill.style.width = `${Math.max(5, task.progress_percent)}%`;
-                    progressPercent.textContent = `${task.progress_percent} %`;
+                    progressBarFill.style.width = `${Math.max(5, task.progress_percent || 0)}%`;
+                    progressPercent.textContent = `${task.progress_percent || 0} %`;
                     progressMessage.textContent = task.message || 'Traitement en cours...';
 
                     if (task.status === 'COMPLETED') {
@@ -1595,12 +1614,19 @@
                         setTimeout(() => showBilingualViewer(taskId, fromLang, toLang), 500);
                     } else if (task.status === 'FAILED') {
                         clearInterval(interval);
-                        alert('Erreur : ' + task.error);
+                        alert('Erreur : ' + (task.error || 'Échec du traitement'));
                         workspaceUpload.classList.remove('hidden');
                         workspaceProgress.classList.add('hidden');
                     }
                 } catch (e) {
                     console.error(e);
+                    errorCount++;
+                    if (errorCount >= 6) {
+                        clearInterval(interval);
+                        alert("Erreur de communication avec le serveur. Veuillez vérifier votre connexion et rafraîchir la page.");
+                        workspaceUpload.classList.remove('hidden');
+                        workspaceProgress.classList.add('hidden');
+                    }
                 }
             }, 1200);
         }
