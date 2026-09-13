@@ -198,77 +198,10 @@ class NllbTranslatorEngine:
                 )
 
     def _get_groq_chat_models(self, api_key: str) -> list:
-        cached = getattr(self, "_cached_groq_chat_models", None)
-        if cached:
-            return cached
-
-        def is_valid_chat_model(m_id: str) -> bool:
-            low = m_id.lower()
-            if any(bad in low for bad in ["whisper", "guard", "safeguard", "audio", "orpheus", "vision", "embed"]):
-                return False
-            return True
-
-        preferred = [
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            "meta-llama/llama-4-scout-17b",
-            "llama-4-scout-17b-16e-instruct",
-            "llama-4-scout",
-            "qwen/qwen3.8-27b",
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-            "qwen/qwen3.6-27b",
-            "allam-2-7b",
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "llama3-8b-8192"
-        ]
-
-        try:
-            with httpx.Client(timeout=10.0) as client:
-                resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"})
-                if resp.status_code == 200:
-                    available = [m["id"] for m in resp.json().get("data", [])]
-
-                    # Probe scout model directly if not listed in public endpoint
-                    scout_id = "meta-llama/llama-4-scout-17b-16e-instruct"
-                    if scout_id not in available:
-                        try:
-                            probe = client.post(
-                                "https://api.groq.com/openai/v1/chat/completions",
-                                headers={"Authorization": f"Bearer {api_key}"},
-                                json={"model": scout_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                                timeout=4.0
-                            )
-                            if probe.status_code in (200, 429):
-                                available.insert(0, scout_id)
-                        except Exception:
-                            pass
-
-                    chat_models = [m for m in available if is_valid_chat_model(m)]
-
-                    ordered = []
-                    for pref in preferred:
-                        for cand in chat_models:
-                            if pref.lower() in cand.lower() and cand not in ordered:
-                                ordered.append(cand)
-                    for cand in chat_models:
-                        if cand not in ordered:
-                            ordered.append(cand)
-
-                    if ordered:
-                        print(f"[Groq Engine] Modeles de chat valides: {ordered}")
-                        self._cached_groq_chat_models = ordered
-                        return ordered
-        except Exception as e:
-            print(f"[Groq Engine] Erreur detection des modeles: {e}")
-
-        self._cached_groq_chat_models = ["qwen/qwen3.8-27b"]
-        return self._cached_groq_chat_models
+        return ["meta-llama/llama-4-scout-17b-16e-instruct"]
 
     def _get_best_groq_model(self, api_key: str) -> str:
-        models = self._get_groq_chat_models(api_key)
-        return models[0] if models else "qwen/qwen3.8-27b"
+        return "meta-llama/llama-4-scout-17b-16e-instruct"
 
     def _parse_translations_from_response(self, raw_content: str, expected_count: int, fallback_chunk: list) -> list:
         if not raw_content or not raw_content.strip():
@@ -350,38 +283,22 @@ class NllbTranslatorEngine:
 
         return fallback_chunk
 
-    def _pick_next_groq_model(self, chat_models: list) -> tuple[str, float]:
+    def _pick_next_groq_model(self, chat_models: list = None) -> tuple[str, float]:
         """
-        Picks the next available model.
-        Prioritizes the generous meta-llama/llama-4-scout-17b-16e-instruct whenever available.
-        Falls back to other chat models (Qwen, GPT-OSS, Allam) if in cooldown.
+        Exclusively returns meta-llama/llama-4-scout-17b-16e-instruct as requested.
+        If in cooldown due to a 429 rate limit, returns the required wait time.
         """
+        model = "meta-llama/llama-4-scout-17b-16e-instruct"
         now = time.time()
-        available = [m for m in chat_models if now >= self._model_cooldowns.get(m, 0.0)]
-        if available:
-            # 1. Prioritize Llama 4 Scout as primary engine
-            scout_m = next((m for m in available if "scout" in m.lower()), None)
-            if scout_m:
-                return scout_m, 0.0
-
-            # 2. Fallback round-robin across healthy secondary models
-            idx = self._model_rotation_idx % len(available)
-            self._model_rotation_idx += 1
-            return available[idx], 0.0
-
-        # All models currently in cooldown: find the earliest expiring cooldown
-        earliest_m = min(chat_models, key=lambda m: self._model_cooldowns.get(m, 0.0))
-        wait_time = max(0.2, self._model_cooldowns.get(earliest_m, now) - now + 0.2)
-        return earliest_m, wait_time
+        cd = self._model_cooldowns.get(model, 0.0)
+        wait_time = max(0.0, cd - now)
+        return model, wait_time
 
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
         Translates a list of texts using Groq Cloud API.
-        Features:
-        - Whole-page chunks (~12 items) to minimize HTTP round-trips
-        - Round-robin model rotation across calls (Qwen, GPT-OSS, Allam)
-        - Cooldown tracking on HTTP 429 so traffic routes instantly to healthy models
-        - Adaptive parser that never drops translated segments
+        Exclusively uses meta-llama/llama-4-scout-17b-16e-instruct.
+        If a 429 rate limit occurs, waits for the backoff window and retries exclusively on Scout.
         """
         api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
         if not api_key or not texts_to_translate:
@@ -390,9 +307,7 @@ class NllbTranslatorEngine:
 
         src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
-        chat_models = self._get_groq_chat_models(api_key)
-        if not chat_models:
-            chat_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "allam-2-7b"]
+        target_model = "meta-llama/llama-4-scout-17b-16e-instruct"
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -419,14 +334,14 @@ class NllbTranslatorEngine:
             max_attempts = 10
 
             for attempt in range(max_attempts):
-                try_model, wait_needed = self._pick_next_groq_model(chat_models)
+                _, wait_needed = self._pick_next_groq_model()
                 if wait_needed > 0.0:
-                    wait_secs = min(wait_needed, 6.0)
-                    print(f"[Groq Engine] Tous les modèles sont en attente de quota. Pause de {wait_secs:.1f}s pour {try_model}...")
+                    wait_secs = min(wait_needed, 10.0)
+                    print(f"[Groq Engine] Attente de quota sur {target_model}: pause de {wait_secs:.1f}s...")
                     time.sleep(wait_secs)
 
                 payload = {
-                    "model": try_model,
+                    "model": target_model,
                     "messages": [
                         {"role": "system", "content": prompt_instruction},
                         {"role": "user", "content": json.dumps({"texts": chunk}, ensure_ascii=False)}
@@ -461,32 +376,29 @@ class NllbTranslatorEngine:
                             except Exception:
                                 pass
 
-                            cooldown = min(max(retry_after, 2.0), 8.0)
-                            self._model_cooldowns[try_model] = time.time() + cooldown
-                            print(f"[Groq Engine] Limite de débit (429) sur {try_model}. Cooldown {cooldown:.1f}s, bascule immédiate sur le modèle suivant.")
-                            time.sleep(0.2)
+                            cooldown = min(max(retry_after, 2.0), 10.0)
+                            self._model_cooldowns[target_model] = time.time() + cooldown
+                            print(f"[Groq Engine] Limite de débit (429) sur {target_model}. Attente de {cooldown:.1f}s avant nouvelle tentative...")
+                            time.sleep(cooldown)
 
                         elif resp.status_code == 400:
-                            print(f"[Groq Engine] HTTP 400 sur {try_model}: {resp.text[:200]}, bascule de modèle.")
-                            self._model_cooldowns[try_model] = time.time() + 1.0
-                            time.sleep(0.3)
+                            print(f"[Groq Engine] HTTP 400 sur {target_model}: {resp.text[:200]}")
+                            time.sleep(1.0)
 
                         else:
-                            print(f"[Groq Engine] HTTP {resp.status_code} sur {try_model}: {resp.text[:200]}")
-                            self._model_cooldowns[try_model] = time.time() + 2.0
-                            time.sleep(0.5)
+                            print(f"[Groq Engine] HTTP {resp.status_code} sur {target_model}: {resp.text[:200]}")
+                            time.sleep(1.5)
 
                 except Exception as e:
-                    print(f"[Groq Engine] Exception sur {try_model}: {e}")
-                    self._model_cooldowns[try_model] = time.time() + 2.0
-                    time.sleep(0.5)
+                    print(f"[Groq Engine] Exception sur {target_model}: {e}")
+                    time.sleep(1.5)
 
             if not success:
-                print(f"[Groq Engine] Attention: Échec des {max_attempts} tentatives pour le groupe de {len(chunk)} éléments.")
+                print(f"[Groq Engine] Attention: Échec des {max_attempts} tentatives pour le groupe de {len(chunk)} éléments sur {target_model}.")
                 all_translated.extend(chunk)
 
-            # Cadencement poli de 0.4s entre les requêtes pour ne jamais saturer le débit (RPM)
-            time.sleep(0.4)
+            # Cadencement régulier entre les requêtes
+            time.sleep(0.5)
 
         return all_translated
 

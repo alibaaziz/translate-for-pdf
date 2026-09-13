@@ -144,12 +144,7 @@ def get_diagnostic():
                     "llama-3.3-70b-versatile",
                     "llama-3.1-8b-instant"
                 ]
-                selected_model = chat_models[0] if chat_models else "meta-llama/llama-4-scout-17b-16e-instruct"
-                for pref in preferred:
-                    found = next((c for c in chat_models if pref.lower() in c.lower()), None)
-                    if found:
-                        selected_model = found
-                        break
+                selected_model = "meta-llama/llama-4-scout-17b-16e-instruct"
 
                 resp = client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
