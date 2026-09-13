@@ -90,7 +90,7 @@ class NllbTranslatorEngine:
         self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
         self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
         self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-        self.openrouter_model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free").strip()
+        self.openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free").strip()
         self._model_rotation_idx = 0
         self._model_cooldowns = {}
 
@@ -316,10 +316,11 @@ class NllbTranslatorEngine:
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
 
         free_models = [
-            os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free").strip(),
-            "qwen/qwen-2.5-72b-instruct:free",
-            "meta-llama/llama-3.1-8b-instruct:free",
-            "mistralai/mistral-7b-instruct:free"
+            os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free").strip(),
+            "nvidia/nemotron-3-super-120b-a12b:free",
+            "google/gemma-4-31b-it:free",
+            "google/gemma-4-26b-a4b-it:free",
+            "openrouter/free"
         ]
 
         url = "https://openrouter.ai/api/v1/chat/completions"

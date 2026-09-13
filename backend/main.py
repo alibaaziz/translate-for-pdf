@@ -100,7 +100,7 @@ def get_shields_status():
 @app.get("/api/diagnostic")
 def get_diagnostic():
     openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    openrouter_model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free").strip()
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free").strip()
     openrouter_error = None
     openrouter_test_result = None
 
