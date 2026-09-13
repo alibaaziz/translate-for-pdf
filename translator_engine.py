@@ -88,7 +88,9 @@ class NllbTranslatorEngine:
         self.tokenizer = None
         self._translation_cache = {}
         self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
-        self.groq_model = os.environ.get("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
+        self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+        self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        self.openrouter_model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free").strip()
         self._model_rotation_idx = 0
         self._model_cooldowns = {}
 
@@ -100,7 +102,9 @@ class NllbTranslatorEngine:
                 cuda_count = 0
         self.device = "cuda" if cuda_count > 0 else "cpu"
         self.compute_type = "int8_float16" if self.device == "cuda" else "int8"
-        if self.groq_api_key:
+        if self.openrouter_api_key:
+            self.active_device_name = f"OpenRouter Cloud ({self.openrouter_model})"
+        elif self.groq_api_key:
             self.active_device_name = f"Groq LPU Cloud ({self.groq_model})"
         else:
             self.active_device_name = "NVIDIA CUDA (GPU)" if self.device == "cuda" else "Processeur (CPU)"
@@ -294,11 +298,102 @@ class NllbTranslatorEngine:
         wait_time = max(0.0, cd - now)
         return model, wait_time
 
+    def _translate_batch_openrouter(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
+        """
+        Translates a list of texts using OpenRouter Cloud API with 100% free models.
+        Rotates between top free translation models:
+        - meta-llama/llama-3.3-70b-instruct:free (primary)
+        - qwen/qwen-2.5-72b-instruct:free
+        - meta-llama/llama-3.1-8b-instruct:free
+        - mistralai/mistral-7b-instruct:free
+        """
+        api_key = os.environ.get("OPENROUTER_API_KEY", self.openrouter_api_key).strip()
+        if not api_key or not texts_to_translate:
+            print("[OpenRouter API] Clé OPENROUTER_API_KEY absente ou liste vide.")
+            return None
+
+        src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
+        tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
+
+        free_models = [
+            os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free").strip(),
+            "qwen/qwen-2.5-72b-instruct:free",
+            "meta-llama/llama-3.1-8b-instruct:free",
+            "mistralai/mistral-7b-instruct:free"
+        ]
+
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://translate-for-pdf.com",
+            "X-Title": "translate-for-pdf",
+            "Content-Type": "application/json"
+        }
+
+        chunk_size = 12
+        all_translated = []
+
+        for i in range(0, len(texts_to_translate), chunk_size):
+            chunk = texts_to_translate[i:i + chunk_size]
+            prompt_instruction = (
+                f"You are a professional document translation engine. "
+                f"Translate each text item in the provided JSON array from {src_name} ({from_code}) to {tgt_name} ({to_code}).\n"
+                f"Strict Rules:\n"
+                f"1. Output ONLY a valid JSON object with key 'translations': [\"item1\", \"item2\", ...]\n"
+                f"2. The array 'translations' must contain EXACTLY {len(chunk)} translated strings corresponding 1:1 to the input items.\n"
+                f"3. Preserve all numbers, acronyms, placeholders, and formatting.\n"
+                f"4. Do NOT output any explanations, markdown notes, or commentary. ONLY the JSON object."
+            )
+
+            success = False
+            max_attempts = 8
+            model_idx = 0
+
+            for attempt in range(max_attempts):
+                target_model = free_models[model_idx % len(free_models)]
+                payload = {
+                    "model": target_model,
+                    "messages": [
+                        {"role": "system", "content": prompt_instruction},
+                        {"role": "user", "content": json.dumps({"texts": chunk}, ensure_ascii=False)}
+                    ],
+                    "temperature": 0.1
+                }
+
+                try:
+                    with httpx.Client(timeout=45.0) as client:
+                        resp = client.post(url, headers=headers, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            raw_content = data["choices"][0]["message"]["content"].strip()
+                            translations = self._parse_translations_from_response(raw_content, len(chunk), chunk)
+                            all_translated.extend(translations)
+                            success = True
+                            break
+                        elif resp.status_code == 429:
+                            print(f"[OpenRouter] Quota (429) sur {target_model}, bascule vers le modèle gratuit suivant...")
+                            model_idx += 1
+                            time.sleep(2.0)
+                        else:
+                            print(f"[OpenRouter] HTTP {resp.status_code} sur {target_model}: {resp.text[:200]}")
+                            model_idx += 1
+                            time.sleep(1.5)
+                except Exception as e:
+                    print(f"[OpenRouter] Exception sur {target_model}: {e}")
+                    model_idx += 1
+                    time.sleep(1.5)
+
+            if not success:
+                print(f"[OpenRouter] Attention: Échec pour le lot de {len(chunk)} éléments.")
+                all_translated.extend(chunk)
+
+            time.sleep(0.5)
+
+        return all_translated
+
     def _translate_batch_groq(self, texts_to_translate: list, from_code: str, to_code: str) -> list:
         """
         Translates a list of texts using Groq Cloud API.
-        Exclusively uses meta-llama/llama-4-scout-17b-16e-instruct.
-        If a 429 rate limit occurs, waits for the backoff window and retries exclusively on Scout.
         """
         api_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
         if not api_key or not texts_to_translate:
@@ -307,7 +402,7 @@ class NllbTranslatorEngine:
 
         src_name = LANGUAGE_CODE_TO_NAME.get(from_code, from_code)
         tgt_name = LANGUAGE_CODE_TO_NAME.get(to_code, to_code)
-        target_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+        target_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -496,7 +591,24 @@ class NllbTranslatorEngine:
 
             texts_to_translate_indices.append((idx, cleaned_text))
 
-        # 1. Attempt Groq Cloud Translation
+        # 1. Attempt OpenRouter Cloud Translation (100% Free models like Llama 3.3 70B & Qwen 2.5 72B)
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY", self.openrouter_api_key).strip()
+        if openrouter_key and texts_to_translate_indices:
+            try:
+                raw_chunk = [item[1] for item in texts_to_translate_indices]
+                or_translated = self._translate_batch_openrouter(raw_chunk, from_code, to_code)
+                if or_translated and len(or_translated) == len(texts_to_translate_indices):
+                    for (t_idx, orig_text), trans in zip(texts_to_translate_indices, or_translated):
+                        results_by_index[t_idx] = trans
+                        self._translation_cache[(orig_text, from_code, to_code)] = trans
+                    for idx in range(len(texts)):
+                        if results_by_index[idx] is None:
+                            results_by_index[idx] = texts[idx]
+                    return results_by_index
+            except Exception as e:
+                print(f"[OpenRouter Engine] Exception: {e}, falling back to Groq / local NLLB")
+
+        # 2. Attempt Groq Cloud Translation
         groq_key = os.environ.get("GROQ_API_KEY", self.groq_api_key).strip()
         if groq_key and texts_to_translate_indices:
             try:

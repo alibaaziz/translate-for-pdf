@@ -99,58 +99,55 @@ def get_shields_status():
 
 @app.get("/api/diagnostic")
 def get_diagnostic():
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free").strip()
+    openrouter_error = None
+    openrouter_test_result = None
+
+    if openrouter_key:
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                or_resp = client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openrouter_key}",
+                        "HTTP-Referer": "https://translate-for-pdf.com",
+                        "X-Title": "translate-for-pdf",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": openrouter_model,
+                        "messages": [{"role": "user", "content": "Translate to French: Hello world"}],
+                        "max_tokens": 20
+                    }
+                )
+                if or_resp.status_code == 200:
+                    openrouter_test_result = or_resp.json()["choices"][0]["message"]["content"].strip()
+                else:
+                    openrouter_error = f"HTTP {or_resp.status_code}: {or_resp.text[:300]}"
+        except Exception as e:
+            openrouter_error = str(e)
+
     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
     groq_error = None
     groq_test_result = None
-    selected_model = None
+    available_models = []
+    models_status = None
+
     if groq_key:
         try:
             with httpx.Client(timeout=10.0) as client:
                 m_resp = client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
                 models_status = m_resp.status_code
-                available_models = [m["id"] for m in m_resp.json().get("data", [])] if m_resp.status_code == 200 else []
-
-                scout_id = "meta-llama/llama-4-scout-17b-16e-instruct"
-                if scout_id not in available_models:
-                    try:
-                        probe = client.post(
-                            "https://api.groq.com/openai/v1/chat/completions",
-                            headers={"Authorization": f"Bearer {groq_key}"},
-                            json={"model": scout_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                            timeout=3.0
-                        )
-                        if probe.status_code in (200, 429):
-                            available_models.insert(0, scout_id)
-                    except Exception:
-                        pass
-
-                def is_valid_chat_model(m_id: str) -> bool:
-                    low = m_id.lower()
-                    if any(bad in low for bad in ["whisper", "guard", "safeguard", "audio", "orpheus", "vision", "embed"]):
-                        return False
-                    return True
-
-                chat_models = [m for m in available_models if is_valid_chat_model(m)]
-                preferred = [
-                    "meta-llama/llama-4-scout-17b-16e-instruct",
-                    "meta-llama/llama-4-scout-17b",
-                    "llama-4-scout-17b-16e-instruct",
-                    "llama-4-scout",
-                    "qwen/qwen3.8-27b",
-                    "qwen/qwen3.6-27b",
-                    "openai/gpt-oss-120b",
-                    "openai/gpt-oss-20b",
-                    "allam-2-7b",
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-8b-instant"
-                ]
-                selected_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+                if m_resp.status_code == 200:
+                    available_models = [m["id"] for m in m_resp.json().get("data", [])]
 
                 resp = client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {groq_key}"},
                     json={
-                        "model": selected_model,
+                        "model": groq_model,
                         "messages": [{"role": "user", "content": "Translate to French: Hello world"}]
                     }
                 )
@@ -163,11 +160,16 @@ def get_diagnostic():
 
     return {
         "status": "online",
+        "openrouter_configured": bool(openrouter_key),
+        "openrouter_prefix": openrouter_key[:10] + "..." if openrouter_key else "NON_CONFIGUREE",
+        "openrouter_model": openrouter_model,
+        "openrouter_test_result": openrouter_test_result,
+        "openrouter_error": openrouter_error,
         "groq_configured": bool(groq_key),
         "groq_prefix": groq_key[:7] + "..." if groq_key else "NON_CONFIGUREE",
-        "groq_model_selected": selected_model,
-        "available_models": available_models if 'available_models' in locals() else [],
-        "models_api_status": models_status if 'models_status' in locals() else None,
+        "groq_model_selected": groq_model,
+        "available_models": available_models,
+        "models_api_status": models_status,
         "groq_test_result": groq_test_result,
         "groq_error": groq_error,
         "supabase_configured": bool(os.environ.get("SUPABASE_URL")),

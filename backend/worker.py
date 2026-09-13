@@ -50,10 +50,11 @@ def execute_translation_job(task_id: str, input_path: str, output_path: str,
     requested_device = tier_rule.get('hardware_device', 'cpu')
     engine = get_engine(requested_device)
 
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
-    if not groq_key and not engine.is_package_installed():
+    if not openrouter_key and not groq_key and not engine.is_package_installed():
         task.status = 'FAILED'
-        task.error = "La clé GROQ_API_KEY n'est pas configurée sur Render. Rendez-vous dans l'onglet 'Environment' de Render et ajoutez GROQ_API_KEY pour activer l'IA de traduction."
+        task.error = "Aucune clé d'IA (OPENROUTER_API_KEY ou GROQ_API_KEY) n'est configurée sur Render. Ajoutez l'une de ces clés dans les variables d'environnement."
         task.message = task.error
         return
 
